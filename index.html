@@ -402,24 +402,32 @@ function batchQcStats(bid){
   return {plannedBase,rate,planned,checked,remaining,pct,passRate};
 }
 
-function attendanceRange(pid,personId=null){
+function attendanceRange(pid,personId=null,fullCycle=false){
   const p=project(pid); let start=parseDate(p&&p.startDate); if(!start) return null;
   const member=personId?person(personId):null;
   const joined=parseDate(member&&member.projectJoinedAt&&member.projectJoinedAt[pid]);
   if(joined&&joined>start) start=joined;
-  const today=parseDate(todayStr()); let end=parseDate(p&&p.endDate)||today;
-  if(end>today) end=today;
-  return end<start?null:{start:toISODate(start),end:toISODate(end),days:diffDays(start,end)+1};
+  const today=parseDate(todayStr()); const configuredEnd=parseDate(p&&p.endDate);
+  let end=(fullCycle&&configuredEnd)?configuredEnd:(configuredEnd&&configuredEnd<today?configuredEnd:today);
+  return end<start?null:{start:toISODate(start),end:toISODate(end),days:diffDays(start,end)+1,fixedEnd:!!configuredEnd};
 }
 function projectDays(pid){ const range=attendanceRange(pid); return range?range.days:0; }
+function attendanceDateInCycle(pid,personId,date){
+  const p=project(pid); let start=parseDate(p&&p.startDate); if(!start) return false;
+  const member=person(personId); const joined=parseDate(member&&member.projectJoinedAt&&member.projectJoinedAt[pid]);
+  if(joined&&joined>start) start=joined;
+  const end=parseDate(p&&p.endDate); const value=parseDate(date);
+  return !!value&&value>=start&&(!end||value<=end);
+}
 function personAttendance(pid,personId){
-  const range=attendanceRange(pid,personId); if(!range) return {total:0,present:0,leave:0,absent:0,rate:0};
+  const range=attendanceRange(pid,personId); const cycle=attendanceRange(pid,personId,true);
+  if(!range) return {total:0,cycleTotal:cycle?cycle.days:0,cycleFixed:!!(cycle&&cycle.fixedEnd),present:0,leave:0,absent:0,rate:0};
   const byDate=new Map();
   S.attendance.filter(a=>a.projectId===pid&&a.personId===personId&&a.date>=range.start&&a.date<=range.end).forEach(a=>byDate.set(a.date,a.status));
   const present=Array.from(byDate.values()).filter(status=>status==='出勤').length;
   const leave=Array.from(byDate.values()).filter(status=>status==='请假').length;
   const absent=Math.max(0,range.days-present-leave);
-  return {total:range.days,present,leave,absent,rate:range.days>0?Math.min(100,present/range.days*100):0};
+  return {total:range.days,cycleTotal:cycle?cycle.days:range.days,cycleFixed:!!(cycle&&cycle.fixedEnd),present,leave,absent,rate:range.days>0?Math.min(100,present/range.days*100):0};
 }
 
 function toast(msg,type){ const a=$('#alert'); a.textContent=msg; a.className='alert show '+(type||''); clearTimeout(a._t); a._t=setTimeout(()=>a.className='alert',2600); }
@@ -1000,19 +1008,21 @@ function dayCols(){ const start=parseDate(attStart); return Array.from({length:7
 function attStored(pid,date){ const r=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date); return r? r.status : ''; }
 function setAttRecord(pid,date,status){ let rec=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date);
   if(!status){ S.attendance=S.attendance.filter(a=>!(a.projectId===curPid&&a.personId===pid&&a.date===date)); return; }
+  if(!attendanceDateInCycle(curPid,pid,date)) return;
   if(!rec){ rec={id:uid(),projectId:curPid,personId:pid,date,status,note:''}; S.attendance.push(rec); } else rec.status=status; }
 function attCell(el){ const st=el.value; setAttRecord(el.dataset.p, el.dataset.d, st); el.className='attcell '+st; save(); }
 function attOpt(st){ return `<option value="" ${!st?'selected':''}>未设置</option>`+['出勤','请假','缺勤'].map(s=>`<option value="${s}" ${s===st?'selected':''}>${s}</option>`).join(''); }
 function attMatrix(ps){
   const cols=dayCols(); const today=todayStr();
   let head=`<tr><th class="pcol">人员</th>`+cols.map(c=>`<th>${c.wd}<div class="muted" style="font-size:11px;font-weight:400">${c.short}</div></th>`).join('')+`</tr>`;
-  let rows=ps.map(p=>{ let cells=cols.map(c=>{ const st=attStored(p.id,c.date); const locked=c.date<today&&!canManage();
+  let rows=ps.map(p=>{ let cells=cols.map(c=>{ const inCycle=attendanceDateInCycle(curPid,p.id,c.date); if(!inCycle) return '<td><select class="attcell" disabled title="该日期不在人员的项目周期内"><option>周期外</option></select></td>';
+      const st=attStored(p.id,c.date); const locked=c.date<today&&!canManage();
       return `<td><select class="attcell ${st}" data-p="${p.id}" data-d="${c.date}" ${locked?'disabled title="过去日期仅管理员可修改"':''} onchange="attCell(this)">${attOpt(st)}</select></td>`; }).join('');
     return `<tr><td class="pcol"><b>${esc(p.name)}</b><div class="muted" style="font-size:11px">${esc(rolesOf(p).join('/')||'成员')}</div></td>${cells}</tr>`; }).join('');
   return `<div class="tbl-wrap attmatrix"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
-function attFill(st){ const cols=dayCols(); persons().forEach(p=>cols.forEach(c=>setAttRecord(p.id,c.date,st))); save(); toast('本周已全部设为「'+st+'」','ok'); renderPage(); }
-function saveWeekAttendance(){ const cols=dayCols(); persons().forEach(p=>cols.forEach(c=>{ const el=document.querySelector(`select[data-p="${p.id}"][data-d="${c.date}"]`); setAttRecord(p.id,c.date, el? el.value:'出勤'); })); save(); toast('本周出勤已保存','ok'); renderPage(); }
+function attFill(st){ const cols=dayCols(); persons().forEach(p=>cols.filter(c=>attendanceDateInCycle(curPid,p.id,c.date)).forEach(c=>setAttRecord(p.id,c.date,st))); save(); toast('周期内日期已设为「'+st+'」','ok'); renderPage(); }
+function saveWeekAttendance(){ const cols=dayCols(); persons().forEach(p=>cols.filter(c=>attendanceDateInCycle(curPid,p.id,c.date)).forEach(c=>{ const el=document.querySelector(`select[data-p="${p.id}"][data-d="${c.date}"]`); setAttRecord(p.id,c.date, el?el.value:''); })); save(); toast('本周出勤已保存','ok'); renderPage(); }
 function renderAttendance(){
   if(!curPid) return emptyBlock('请先创建项目');
   const ps=persons(); const p=project(curPid);
@@ -1023,12 +1033,13 @@ function renderAttendance(){
       <div class="field"><label>本周从</label><input type="date" value="${attStart}" onchange="attSetStart(this.value)"></div>
       <button class="btn ghost" onclick="attShift(7)">下一周 ▶</button>
       <span class="badge muted">${cols[0].short}(${cols[0].wd}) ~ ${cols[6].short}(${cols[6].wd})</span>
+      ${canManage()?`<button class="btn ghost" onclick="editProject('${curPid}')">设置项目周期</button>`:''}
       <span class="sp" style="flex:1"></span>
       <button class="btn ghost" onclick="attFill('出勤')">全员出勤</button>
       <button class="btn ghost" onclick="attFill('请假')">全员请假</button>
       <button class="btn" onclick="saveWeekAttendance()">💾 保存本周</button>
     </div>
-    <div class="hint" style="margin-bottom:12px">截至今天，项目已进行 ${projectDays(curPid)} 天。未来出勤可提前报备，但到达对应日期后才计入实际出勤；未设置的已过日期计为缺勤。管理员可以补录和修正过去日期。</div>
+    <div class="hint" style="margin-bottom:12px">项目周期：${esc(p.startDate||'未设置')} ～ ${esc(p.endDate||'进行中（请在基础设置中填写结束日期）')}。周期外日期禁止填报；未来出勤可提前报备，但到达对应日期后才计入实际出勤。管理员可以补录和修正过去日期。</div>
     ${ps.length? attMatrix(ps) : '<div class="empty">请先在「基础设置」添加人员</div>'}
   </div>`;
   html+=`<div class="panel"><h2>📋 项目出勤率汇总 <span class="sub">随填报自动更新，项目结束时直接导出</span></h2>
@@ -1078,9 +1089,9 @@ function attendanceSummaryTable(ps){
   let rows='';
   ps.forEach(p=>{ const a=personAttendance(curPid,p.id);
     rows+=`<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.team||'-')}</td>
-      <td class="num">${a.total}</td><td class="num up">${a.present}</td><td class="num">${a.leave}</td><td class="num">${a.absent}</td>
+      <td class="num">${a.cycleTotal}${a.cycleFixed?'':' <span class="muted">(进行中)</span>'}</td><td class="num">${a.total}</td><td class="num up">${a.present}</td><td class="num">${a.leave}</td><td class="num">${a.absent}</td>
       <td class="num"><span class="badge ${a.rate>=95?'ok':a.rate>=80?'warn':'bad'}">${fmtNum(a.rate,1)}%</span></td></tr>`; });
-  return `<div class="tbl-wrap"><table><thead><tr><th>人员</th><th>团队</th><th class="num">截至今日应出勤</th><th class="num">实际出勤</th><th class="num">请假</th><th class="num">缺勤/未填</th><th class="num">出勤率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table><thead><tr><th>人员</th><th>团队</th><th class="num">项目周期应出勤</th><th class="num">截至今日应出勤</th><th class="num">实际出勤</th><th class="num">请假</th><th class="num">缺勤/未填</th><th class="num">当前出勤率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /* ============================ 报表中心 ============================ */
@@ -1225,6 +1236,8 @@ function renderSettings(){
         <div class="field" style="flex:1"><label>项目名称</label><input id="np_name" placeholder="如 某客户AIGC标注"></div>
         <div class="field"><label>默认单价(元/条)</label><input id="np_price" type="number" min="0" step="0.01" placeholder="0.50"></div>
         <div class="field"><label>默认质检比例%</label><input id="np_qa" type="number" min="0" max="100" step="1" placeholder="100"></div>
+        <div class="field"><label>开始日期</label><input id="np_start" type="date" value="${todayStr()}"></div>
+        <div class="field"><label>结束日期</label><input id="np_end" type="date"></div>
         <button class="btn" onclick="addProject()">＋ 新增</button>
       </div>`:`<div class="hint" style="margin-bottom:12px">仅管理员可新增 / 编辑项目与单价。</div>`}
       ${projectTable()}
@@ -1334,9 +1347,11 @@ function addProject(){
   if(!canManage()) return toast('仅管理员可新增项目','bad');
   const name=$('#np_name').value.trim(); if(!name) return toast('请填写项目名称','bad');
   const qa=$('#np_qa').value.trim();
+  const startDate=$('#np_start').value||todayStr(), endDate=$('#np_end').value;
+  if(endDate&&endDate<startDate) return toast('项目结束日期不能早于开始日期','bad');
   captureFormDrafts(); const sourceDraftKey=formDraftKey(); const previousDraft={...(FORM_DRAFTS.get(sourceDraftKey)||{})};
-  const created={id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate:todayStr(),endDate:'',note:''};
-  ['np_name','np_price','np_qa'].forEach(id=>delete previousDraft[id]);
+  const created={id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate,endDate,note:''};
+  ['np_name','np_price','np_qa','np_start','np_end'].forEach(id=>delete previousDraft[id]);
   FORM_DRAFTS.set(sourceDraftKey,{...previousDraft});
   S.projects.push(created); curPid=created.id; saveCurrentProject();
   FORM_DRAFTS.set(formDraftKey(),previousDraft);
@@ -1358,9 +1373,11 @@ function editProject(id){
 function saveProjectEdit(id){
   const p=project(id); if(!p) return;
   if(!canManage()) return toast('仅管理员可编辑项目','bad');
+  const startDate=$('#ep_start').value, endDate=$('#ep_end').value;
+  if(endDate&&startDate&&endDate<startDate) return toast('项目结束日期不能早于开始日期','bad');
   p.name=$('#ep_name').value.trim(); p.unitPrice=Number($('#ep_price').value)||0;
   p.qaRate=Math.min(100,Math.max(0,Number($('#ep_qa').value)||100));
-  p.startDate=$('#ep_start').value; p.endDate=$('#ep_end').value;
+  p.startDate=startDate; p.endDate=endDate;
   save(); closeOverlay(); renderProjSel(); renderPage(); toast('已保存','ok');
 }
 function delProject(id){
@@ -1451,7 +1468,7 @@ function exportDailyDetail(){
   makeSheets([{name:'人效明细',aoa}]);
 }
 function exportAttendanceDetail(){
-  const list=S.attendance.filter(a=>a.projectId===curPid).sort((a,b)=>a.date.localeCompare(b.date));
+  const list=S.attendance.filter(a=>a.projectId===curPid&&attendanceDateInCycle(curPid,a.personId,a.date)).sort((a,b)=>a.date.localeCompare(b.date));
   if(!list.length) return toast('暂无出勤记录','bad');
   const aoa=[['日期','人员','团队','状态','备注']];
   list.forEach(a=>{const p=person(a.personId); aoa.push([a.date,p?p.name:'未知',p?p.team||'':'',a.status,a.note||'']);});
@@ -1459,8 +1476,8 @@ function exportAttendanceDetail(){
 }
 function exportAttendanceSummary(){
   const ps=persons(); if(!ps.length) return toast('暂无人员','bad');
-  const aoa=[['人员','团队','截至今日应出勤(天)','实际出勤(天)','请假(天)','缺勤/未填(天)','出勤率%']];
-  ps.forEach(p=>{const a=personAttendance(curPid,p.id); aoa.push([p.name,p.team||'',a.total,a.present,a.leave,a.absent,round2(a.rate)]);});
+  const aoa=[['人员','团队','项目周期应出勤(天)','周期状态','截至今日应出勤(天)','实际出勤(天)','请假(天)','缺勤/未填(天)','当前出勤率%']];
+  ps.forEach(p=>{const a=personAttendance(curPid,p.id); aoa.push([p.name,p.team||'',a.cycleTotal,a.cycleFixed?'已设置结束日期':'进行中',a.total,a.present,a.leave,a.absent,round2(a.rate)]);});
   makeSheets([{name:'出勤率汇总',aoa}]);
 }
 function exportWeek(){
