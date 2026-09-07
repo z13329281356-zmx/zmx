@@ -1,0 +1,13 @@
+{
+  "name": "aigc-annotation-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AIGC 标注项目管理工具局域网共享服务",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

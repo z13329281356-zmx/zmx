@@ -1,0 +1,4 @@
+data/store.json
+data/store.json.tmp
+npm-debug.log*
+firewall-setup.log
