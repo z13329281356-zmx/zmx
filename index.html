@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIGC 标注项目管理工具</title>
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns=&#39;http://www.w3.org/2000/svg&#39; viewBox=&#39;0 0 100 100&#39;&gt;&lt;text y=&#39;.9em&#39; font-size=&#39;90&#39;&gt;%F0%9F%8F%B7%EF%B8%8F&lt;/text&gt;&lt;/svg&gt;">
+<script src="./assets/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#eef1f8; --card:#ffffff; --line:#e6e9f2; --text:#1c2230; --muted:#8790a8;
+  --brand:#4f6ef7; --brand-2:#8a5cff; --brand-d:#3b56d6; --brand-soft:#eef1fe;
+  --ok:#16a34a; --ok-soft:#e7f7ee; --warn:#e08b00; --warn-soft:#fdf1dd;
+  --bad:#dc2f3d; --bad-soft:#fce9eb; --radius:16px;
+  --shadow:0 2px 10px rgba(28,34,48,.05),0 12px 32px rgba(28,34,48,.08);
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:linear-gradient(180deg,#f2f4fb 0%,#e8ecf6 100%); color:var(--text); font-size:14px; display:flex; overflow:hidden}
+a{color:var(--brand)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#c8cede;border-radius:999px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#aab2c6;background-clip:content-box}
+/* Sidebar */
+.side{width:232px; background:linear-gradient(180deg,#1d2335,#161b2a); color:#cbd2e3; display:flex; flex-direction:column; flex-shrink:0}
+.side .logo{padding:24px 20px 18px; font-size:16px; font-weight:700; color:#fff; display:flex; gap:11px; align-items:center}
+.side .logo .dot{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#5f7bff,#8a5cff);display:flex;align-items:center;justify-content:center;font-size:19px;box-shadow:0 6px 16px rgba(95,123,255,.4)}
+.nav{flex:1; padding:10px 14px; overflow-y:auto}
+.nav button{display:flex; align-items:center; gap:12px; width:100%; padding:11px 14px; margin:3px 0;
+  border:none; background:transparent; color:#aeb6cc; font-size:14px; border-radius:11px; cursor:pointer; text-align:left; transition:all .15s ease}
+.nav button:hover{background:#262d44; color:#fff}
+.nav button.active{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff; font-weight:600; box-shadow:0 6px 16px rgba(95,123,255,.35)}
+.nav button .ico{width:18px; text-align:center}
+.side .foot{padding:14px 20px; font-size:11px; color:#6b7690; line-height:1.7}
+/* Main */
+.main{flex:1; display:flex; flex-direction:column; min-width:0}
+.topbar{height:62px; background:rgba(255,255,255,.85); backdrop-filter:blur(12px); border-bottom:1px solid var(--line); box-shadow:0 10px 30px -24px rgba(79,110,247,.55); display:flex; align-items:center; gap:14px; padding:0 24px; flex-shrink:0}
+.topbar h1{font-size:17px; font-weight:800}
+.topbar .sp{flex:1}
+.topbar select{padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:14px; min-width:180px; box-shadow:0 1px 3px rgba(28,34,48,.04)}
+.topbar .btn{padding:8px 14px}
+.topbar .sync{font-size:12px; padding:6px 12px; border-radius:999px; font-weight:600; white-space:nowrap}
+.topbar .sync.on{background:var(--ok-soft); color:var(--ok)}
+.topbar .sync.warn{background:var(--warn-soft); color:var(--warn)}
+.topbar .sync.local{background:#eef0f5; color:var(--muted)}
+.content{flex:1; overflow-y:auto; padding:24px}
+/* Cards */
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; margin-bottom:22px}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); position:relative; overflow:hidden; transition:transform .15s ease, box-shadow .15s ease}
+.card:hover{transform:translateY(-2px); box-shadow:0 4px 14px rgba(28,34,48,.08),0 16px 40px rgba(28,34,48,.12)}
+.card::before{content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:linear-gradient(180deg,var(--brand),var(--brand-2))}
+.card .k{color:var(--muted); font-size:12.5px; margin-bottom:9px}
+.card .v{font-size:26px; font-weight:800; letter-spacing:.3px}
+.card .s{font-size:12px; color:var(--muted); margin-top:7px}
+.panel{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:22px; margin-bottom:20px; box-shadow:var(--shadow)}
+.panel h2{font-size:16px; font-weight:800; margin-bottom:16px; display:flex; align-items:center; gap:8px}
+.panel h2 .sub{font-size:12px; color:var(--muted); font-weight:400; margin-left:6px}
+.row{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px}
+.field{display:flex; flex-direction:column; gap:6px}
+.field label{font-size:12px; color:var(--muted)}
+input,select,textarea{font-family:inherit; font-size:14px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--text); outline:none; transition:border-color .15s, box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft)}
+input[type=date],input[type=week],input[type=month]{color-scheme:light}
+.btn{display:inline-flex; align-items:center; gap:7px; padding:10px 17px; border:none; border-radius:10px; background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff; font-size:14px; cursor:pointer; font-weight:600; box-shadow:0 4px 12px rgba(95,123,255,.28); transition:filter .15s, transform .1s}
+.btn:hover{filter:brightness(1.06)}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:#fff; color:var(--text); border:1px solid var(--line); box-shadow:none}
+.btn.ghost:hover{background:#f5f7fc}
+.btn.danger{background:var(--bad-soft); color:var(--bad); box-shadow:none}
+.btn.sm{padding:6px 11px; font-size:12.5px}
+.btn.link{background:transparent; color:var(--brand); padding:4px 6px; box-shadow:none}
+.btn.link.danger{color:var(--bad)}
+/* Table */
+.tbl-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:12px}
+table{width:100%; border-collapse:collapse; font-size:13.5px}
+th,td{padding:11px 13px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap}
+th{background:#f7f8fc; color:var(--muted); font-weight:600; font-size:12px; position:sticky; top:0; z-index:1}
+tbody tr:nth-child(even) td{background:#fafbfe}
+tr:hover td{background:#f3f6ff}
+td.num,th.num{text-align:right}
+.tfoot td{font-weight:700; background:#f7f8fc; border-top:2px solid var(--line)}
+/* Badges & progress */
+.badge{display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600}
+.badge.ok{background:var(--ok-soft); color:var(--ok)}
+.badge.warn{background:var(--warn-soft); color:var(--warn)}
+.badge.bad{background:var(--bad-soft); color:var(--bad)}
+.badge.muted{background:#eef0f5; color:var(--muted)}
+.progress{height:9px; background:#eef0f5; border-radius:999px; overflow:hidden; min-width:120px}
+.progress i{display:block; height:100%; background:linear-gradient(90deg,var(--brand),var(--brand-2)); border-radius:999px; transition:width .4s ease; box-shadow:0 0 8px rgba(95,123,255,.5)}
+.pct{font-weight:700; font-size:12.5px}
+.muted{color:var(--muted)}
+.money{font-weight:700; color:var(--ok)}
+.up{color:var(--ok); font-weight:700}
+.down{color:var(--bad); font-weight:700}
+.hint{font-size:12px; color:var(--muted); line-height:1.7}
+.empty{padding:36px; text-align:center; color:var(--muted)}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+@media(max-width:900px){.two{grid-template-columns:1fr}}
+/* 周出勤矩阵 */
+.attmatrix .pcol{position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid var(--line); min-width:118px}
+.attmatrix thead th{text-align:center; vertical-align:top; padding:9px 6px}
+.attmatrix tbody td{text-align:center; padding:7px 5px}
+.attmatrix tbody tr:hover td{background:#f3f6ff}
+select.attcell{border:none; border-radius:9px; padding:7px 2px; font-weight:700; cursor:pointer; width:70px; text-align:center; font-size:13px; box-shadow:inset 0 0 0 1px transparent}
+select.attcell.出勤{background:var(--ok-soft); color:var(--ok)}
+select.attcell.请假{background:var(--warn-soft); color:var(--warn)}
+select.attcell.缺勤{background:var(--bad-soft); color:var(--bad)}
+select.attcell:disabled{opacity:.55; cursor:not-allowed}
+/* Modal */
+.overlay{position:fixed; inset:0; background:rgba(20,25,40,.5); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:50; padding:20px}
+.overlay.show{display:flex}
+.modal{background:#fff; border-radius:18px; width:min(680px,100%); max-height:86vh; overflow-y:auto; padding:26px; box-shadow:0 24px 64px rgba(20,25,40,.25); animation:pop .18s ease}
+@keyframes pop{from{transform:translateY(10px) scale(.98); opacity:0}to{transform:none; opacity:1}}
+.modal h3{font-size:17px; font-weight:800; margin-bottom:16px}
+.modal .actions{display:flex; gap:10px; justify-content:flex-end; margin-top:18px}
+.alert{position:fixed; top:18px; right:18px; background:#1b2030; color:#fff; padding:13px 18px; border-radius:12px; z-index:99; display:none; box-shadow:0 8px 30px rgba(0,0,0,.3); max-width:380px; animation:slide .2s ease}
+.alert.show{display:block}
+.alert.ok{background:var(--ok)}
+.alert.bad{background:var(--bad)}
+@keyframes slide{from{transform:translateX(12px); opacity:0}to{transform:none; opacity:1}}
+</style>
+</head>
+<body>
+<aside class="side">
+  <div class="logo"><span class="dot">🏷️</span>AIGC 标注管理</div>
+  <nav class="nav" id="nav"><button class="active" onclick="go(&#39;dashboard&#39;)"><span class="ico">📊</span>驾驶舱</button><button class="" onclick="go(&#39;batches&#39;)"><span class="ico">🗂️</span>批次管理</button><button class="" onclick="go(&#39;efficiency&#39;)"><span class="ico">⚡</span>人效统计</button><button class="" onclick="go(&#39;qc&#39;)"><span class="ico">🧪</span>质检管理</button><button class="" onclick="go(&#39;attendance&#39;)"><span class="ico">🗓️</span>出勤报备</button><button class="" onclick="go(&#39;reports&#39;)"><span class="ico">📑</span>报表中心</button><button class="" onclick="go(&#39;settings&#39;)"><span class="ico">⚙️</span>基础设置</button></nav>
+  <div class="foot">同步状态见右上角<br>双击本文件=单机 · 网址访问=团队共享</div>
+</aside>
+<div class="main">
+  <div class="topbar">
+    <h1 id="pageTitle">📊  驾驶舱</h1>
+    <span class="sp"></span>
+    <label class="muted" style="font-size:12px">当前项目</label>
+    <select id="projSel" onchange="switchProject(this.value)"><option value="mtoxyxli3impa">aigc</option></select>
+    <span id="syncState" class="sync warn" title="与共享服务器断开，请检查网络或服务器是否在运行">⚠ 离线(重连中)</span>
+    <button class="btn ghost" onclick="openProjectModal()">＋ 项目</button>
+    <button id="meChip" class="btn ghost" onclick="openIdentity()" title="当前身份与权限" style="padding:8px 13px;white-space:nowrap">👤 <span id="meTxt">zmx · 负责人 🔒</span></button>
+  </div>
+  <div class="content" id="view">
+  <div class="cards">
+    <div class="card"><div class="k">项目名称</div><div class="v" style="font-size:20px">aigc</div><div class="s">2026-09-06 ~ 进行中</div></div>
+    <div class="card"><div class="k">批次总数</div><div class="v">1</div><div class="s">任务总量 10000 条</div></div>
+    <div class="card"><div class="k">已完成(合格)</div><div class="v up">2200</div><div class="s">剩余 7800 条</div></div>
+    <div class="card"><div class="k">整体进度</div><div class="v">22.0%</div><div class="progress" style="margin-top:8px"><i style="width:22%"></i></div></div>
+    <div class="card"><div class="k">总产值</div><div class="v money">¥440.00</div><div class="s">今日 ¥0.00</div></div>
+  </div><div class="two">
+    <div class="panel"><h2>批次进度</h2><div class="tbl-wrap"><table><thead><tr><th>批次号</th><th class="num">总量</th><th class="num">已完成</th><th class="num">剩余</th><th style="width:180px">标注进度</th><th>质检(已检/应检)</th><th class="num">质检%</th></tr></thead><tbody><tr>
+    <td><b>1</b></td>
+    <td class="num">10000</td><td class="num up">2200</td>
+    <td class="num ">7800</td>
+    <td><div class="progress"><i style="width:22%"></i></div><span class="pct">22.0%</span></td>
+    <td class="num">1500 / 2200</td>
+    <td class="num pct">68.2%</td></tr></tbody></table></div></div>
+    <div class="panel"><h2>本月产值 Top</h2><div class="tbl-wrap"><table><thead><tr><th>#</th><th>人员</th><th class="num">本月产值</th></tr></thead><tbody><tr><td>1</td><td>zmx</td><td class="num money">¥320.00</td></tr><tr><td>2</td><td>王五</td><td class="num money">¥120.00</td></tr></tbody></table></div></div>
+  </div><div class="panel"><h2>最近录入</h2><div class="tbl-wrap"><table><thead><tr><th>日期</th><th>人员</th><th>批次</th><th class="num">完成</th><th class="num">合格</th><th class="num">工时</th><th class="num">产值</th></tr></thead><tbody><tr><td>2026-09-06</td><td>zmx</td><td>1</td>
+      <td class="num">1600</td><td class="num up">1600</td><td class="num">8</td><td class="num money">¥320.00</td></tr><tr><td>2026-09-06</td><td>王五</td><td>1</td>
+      <td class="num">600</td><td class="num up">600</td><td class="num">8</td><td class="num money">¥120.00</td></tr></tbody></table></div></div></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalBody"></div>
+</div>
+<div class="alert" id="alert"></div>
+
+<script>
+/* ============================ 基础状态与存储 ============================ */
+const LS_KEY = 'aigc_mgmt_v1';
+function defaultState(){ return { projects:[], batches:[], persons:[], daily:[], qc:[], attendance:[], settings:[] }; }
+function clone(x){ return JSON.parse(JSON.stringify(x)); }
+/* 同步层：server = 团队共享(数据在服务器)；local = 单机(数据在本浏览器) */
+let SYNC={ mode:'local', base:null, rev:0, online:false, pending:false, busy:false, again:false };
+let S = defaultState();
+let curPid = null;
+
+function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); return raw?Object.assign(defaultState(),JSON.parse(raw)):defaultState(); }catch(e){ return defaultState(); } }
+function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
+function setState(ns){ S = Object.assign(defaultState(), ns||{}); }
+function stampBase(){ SYNC.base = clone(S); }
+
+/* 主保存：无论哪种模式先写本机快照；服务器模式再推送到共享端 */
+function save(){
+  saveLocal();
+  if(SYNC.mode==='server') pushSync();
+  updateSyncUI();
+}
+/* 计算相对上次基线(base)的改动：新增/修改 -> upd；删除 -> del */
+function collectChanges(){
+  const cols=['projects','batches','persons','daily','qc','attendance','settings'];
+  const upd={}, del={}; let has=false;
+  const base = SYNC.base || defaultState();
+  cols.forEach(c=>{
+    const cur = S[c]||[]; const b = base[c]||[];
+    const bm={}, cm={}; b.forEach(e=>{ if(e&&e.id) bm[e.id]=e; }); cur.forEach(e=>{ if(e&&e.id) cm[e.id]=e; });
+    const up={}, dm={}; const now=Date.now();
+    cur.forEach(e=>{ const old=bm[e.id];
+      if(!old){ up[e.id]={...clone(e), updatedAt:now}; }
+      else if(JSON.stringify(old)!==JSON.stringify(e)){ up[e.id]={...clone(e), updatedAt:now}; }
+    });
+    b.forEach(e=>{ if(!cm[e.id]) dm[e.id]=now; });
+    if(Object.keys(up).length){ upd[c]=up; has=true; }
+    if(Object.keys(dm).length){ del[c]=dm; has=true; }
+  });
+  return {has, upd, del};
+}
+function pushSync(){
+  if(SYNC.busy){ SYNC.again=true; SYNC.pending=true; return; }
+  const ch=collectChanges();
+  if(!ch.has){ stampBase(); SYNC.pending=false; return; }
+  SYNC.busy=true; SYNC.pending=true; updateSyncUI();
+  fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rev:SYNC.rev,upd:ch.upd,del:ch.del})})
+    .then(r=>r.json())
+    .then(res=>{
+      SYNC.busy=false;
+      if(res && res.ok){
+        setState(res.data); SYNC.rev=res.rev; SYNC.online=true;
+        stampBase(); SYNC.pending=false;
+        if(SYNC.again){ SYNC.again=false; pushSync(); }
+      } else { SYNC.online=false; SYNC.pending=false; }
+      updateSyncUI();
+    })
+    .catch(()=>{ SYNC.busy=false; SYNC.online=false; SYNC.pending=false; updateSyncUI(); });
+}
+/* 轮询：别人改动了就拉取合并后的最新数据 */
+async function pollSync(){
+  if(SYNC.mode!=='server' || SYNC.pending || SYNC.busy) return;
+  try{
+    const r = await fetch('/api/data?t='+Date.now());
+    const res = await r.json();
+    if(res && res.ok){
+      if(res.rev !== SYNC.rev){
+        setState(res.data); SYNC.rev=res.rev; SYNC.online=true; stampBase();
+        if(document.getElementById('view')) renderPage();
+      }
+    }
+  }catch(e){ SYNC.online=false; updateSyncUI(); }
+}
+/* 启动：优先尝试服务器，失败则本地单机 */
+async function initSync(){
+  if(!location.host){ // file:// 双击本地打开：直接走单机，不请求服务器
+    SYNC.mode='local'; SYNC.online=false; setState(loadLocal()); stampBase(); return false;
+  }
+  try{
+    const r = await fetch('/api/data'); const res = await r.json();
+    if(res && res.ok){ SYNC.mode='server'; SYNC.online=true; SYNC.rev=res.rev||0; setState(res.data); stampBase(); return true; }
+  }catch(e){ /* 不是服务器环境 */ }
+  SYNC.mode='local'; SYNC.online=false; setState(loadLocal()); stampBase(); return false;
+}
+function updateSyncUI(){
+  const el = document.getElementById('syncState'); if(!el) return;
+  if(SYNC.mode==='server'){
+    el.className='sync '+(SYNC.online?'on':'warn');
+    el.textContent = SYNC.online ? (SYNC.pending?'↻ 同步中…':'● 已同步 · 团队共享') : '⚠ 离线(重连中)';
+    el.title = SYNC.online ? '数据存在共享服务器，全员实时同步' : '与共享服务器断开，请检查网络或服务器是否在运行';
+  } else {
+    el.className='sync local';
+    el.textContent='● 本机模式';
+    el.title='当前为单机模式(本地存储)。要团队共享请通过 server.py 提供的网址访问。';
+  }
+}
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ============================ 工具函数 ============================ */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function toISODate(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function todayStr(){ return toISODate(new Date()); }
+function parseDate(s){ if(!s) return null; const m=String(s).trim().match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/); if(!m) return null; return new Date(+m[1], +m[2]-1, +m[3]); }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function mondayOf(d){ const x=new Date(d); const wd=(x.getDay()+6)%7; return addDays(x, -wd); }
+function diffDays(a,b){ return Math.round((b-a)/86400000); }
+function fmtNum(n,dec){ const v=Number(n)||0; return dec!=null? v.toFixed(dec) : String(v); }
+function money(n){ return '¥' + fmtNum(n,2); }
+function round2(n){ return Math.round((Number(n)||0)*100)/100; }
+
+function project(id){ return S.projects.find(p=>p.id===id); }
+function batch(id){ return S.batches.find(b=>b.id===id); }
+function person(id){ return S.persons.find(p=>p.id===id); }
+function batchesOf(pid){ return S.batches.filter(b=>b.projectId===pid); }
+function persons(){ return S.persons; }
+function batchByNo(pid,no){ return S.batches.find(b=>b.projectId===pid && String(b.batchNo).trim()===String(no).trim()); }
+function personByName(name){ const n=String(name||'').trim(); return S.persons.find(p=>p.name===n); }
+
+function unitPriceOf(bid){ const b=batch(bid); if(b && b.unitPrice!==null && b.unitPrice!==undefined && String(b.unitPrice).trim()!=='') return Number(b.unitPrice)||0; const pid=b?b.projectId:curPid; const p=project(pid); return (p?Number(p.unitPrice):0)||0; }
+function qualifiedOf(r){ const q=r.qualified; return (q===null||q===undefined||String(q).trim()==='') ? (Number(r.completed)||0) : (Number(q)||0); }
+function hourlyOf(r){ const h=Number(r.hours)||0; return h>0 ? round2(qualifiedOf(r)/h) : 0; }
+function valueOf(r){ return round2(qualifiedOf(r) * unitPriceOf(r.batchId)); }
+
+function batchDone(bid){ return S.daily.filter(d=>d.batchId===bid).reduce((s,d)=>s+qualifiedOf(d),0); }
+function batchStats(bid){ const b=batch(bid)||{}; const total=Number(b.totalTasks)||0; const done=batchDone(bid); const pct= total>0? done/total*100 : 0; return {done,total,remaining:total-done,pct}; }
+
+/* ---------- 人员职位 ---------- */
+const ROLES=['负责人','标注','质检'];
+function rolesOf(p){ return (p&&Array.isArray(p.roles)&&p.roles.length)?p.roles.slice():[]; }
+function hasRole(p,r){ return rolesOf(p).includes(r); }
+function roleBadges(p){ const r=rolesOf(p);
+  const map={负责人:'warn',标注:'ok',质检:'muted'};
+  return r.length? r.map(x=>`<span class="badge ${map[x]||'muted'}">${x}</span>`).join(' ') : '<span class="badge muted">-</span>'; }
+
+/* ---------- 身份与权限（轻量，基于职位 + 管理密码） ---------- */
+const ME_KEY='aigc_me_v1';
+let ME=(function(){ try{ return JSON.parse(localStorage.getItem(ME_KEY)||'null'); }catch(e){ return null; } })();
+SYNC.mgrOk=false;
+function saveMe(){ try{ localStorage.setItem(ME_KEY, JSON.stringify(ME)); }catch(e){} }
+function mePerson(){ return ME&&ME.id ? S.persons.find(p=>p.id===ME.id)||null : null; }
+function cfg(){ return (S.settings||[]).find(x=>x.id==='cfg') || {mgrPassword:''}; }
+function setCfg(obj){ const arr=S.settings||[]; let c=arr.find(x=>x.id==='cfg');
+  if(!c){ c={id:'cfg',updatedAt:Date.now()}; arr.push(c); }
+  Object.assign(c,obj); c.updatedAt=Date.now(); }
+function bootstrapMode(){ return S.persons.length===0; }      // 还没建人员=初始化期，放行
+function isManager(){ return rolesOf(mePerson()).includes('负责人'); }
+function hasAnyManager(){ return S.persons.some(p=>rolesOf(p).includes('负责人')); }
+function canManage(){
+  if(bootstrapMode()) return true;                 // 还没建人员
+  if(!hasAnyManager()) return true;                // 还没人任负责人：先允许配置（首次搭建/老数据补职位）
+  if(isManager()) return SYNC.mgrOk || !cfg().mgrPassword;  // 本人是负责人
+  return false;
+}
+function canRecordDaily(){ return canManage() || rolesOf(mePerson()).includes('标注'); }
+function canRecordQc(){ return canManage() || rolesOf(mePerson()).includes('质检'); }
+function canTouchDaily(rec){ return canManage() || (canRecordDaily() && rec.personId===(mePerson()||{}).id); }
+function canTouchQc(rec){ return canManage() || (canRecordQc() && rec.personId===(mePerson()||{}).id); }
+function verifyManagerPw(pw){ const c=cfg(); return !c.mgrPassword || (pw===c.mgrPassword); }
+function identityLabel(){
+  if(bootstrapMode()) return '初始化 · 可编辑';
+  const p=mePerson(); if(!p) return canManage()? '未选身份 · 可配置' : '未选身份 · 只读';
+  return `${p.name} · ${rolesOf(p).join('/')||'成员'}${isManager()&&!SYNC.mgrOk&&cfg().mgrPassword?' 🔒':''}`;
+}
+
+/* ---------- 质检 ---------- */
+/* 质检量安排：应检数 = 该批次“标注合格累计” × 质检比例（批次/项目可设，默认全检100%） */
+function qaRateOf(bid){
+  const b=batch(bid);
+  if(b && b.qaRate!==null && b.qaRate!==undefined && String(b.qaRate).trim()!=='') return Number(b.qaRate)||100;
+  const pid=b?b.projectId:curPid; const p=project(pid);
+  const r = p && p.qaRate!=null && String(p.qaRate).trim()!=='' ? Number(p.qaRate) : 100;
+  return r||100;
+}
+function qcBadOf(q){ return Number(q.bad)||0; }
+function qcCheckedOf(bid){ return S.qc.filter(q=>q.batchId===bid).reduce((s,q)=>s+(Number(q.checked)||0),0); }
+function batchQcStats(bid){
+  const plannedBase=batchDone(bid); // 标注合格累计
+  const rate=qaRateOf(bid);
+  const planned=Math.round(plannedBase*rate/100);
+  const checked=qcCheckedOf(bid);
+  const remaining=planned-checked;
+  const pct= planned>0? checked/planned*100 : 0;
+  const bad=S.qc.filter(q=>q.batchId===bid).reduce((s,q)=>s+qcBadOf(q),0);
+  const passRate= checked>0? (checked-bad)/checked*100 : 0;
+  return {plannedBase,rate,planned,checked,remaining,pct,passRate};
+}
+
+function projectDays(pid){ const p=project(pid); const s=parseDate(p&&p.startDate); if(!s) return 0; let e=parseDate(p&&p.endDate)||new Date(); if(e<s) return 0; return diffDays(s,e)+1; }
+function personAttendance(pid,personId){ const total=projectDays(pid); const present=S.attendance.filter(a=>a.projectId===pid&&a.personId===personId&&a.status==='出勤').length; return {total,present,absent:total-present,rate: total>0? present/total*100 : 0}; }
+
+function toast(msg,type){ const a=$('#alert'); a.textContent=msg; a.className='alert show '+(type||''); clearTimeout(a._t); a._t=setTimeout(()=>a.className='alert',2600); }
+function showOverlay(html){ $('#modalBody').innerHTML=html; $('#overlay').classList.add('show'); }
+function closeOverlay(){ $('#overlay').classList.remove('show'); }
+$('#overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeOverlay(); });
+
+/* ============================ 导航 ============================ */
+const PAGES = [
+  {k:'dashboard', t:'驾驶舱', i:'📊'},
+  {k:'batches',   t:'批次管理', i:'🗂️'},
+  {k:'efficiency',t:'人效统计', i:'⚡'},
+  {k:'qc',        t:'质检管理', i:'🧪'},
+  {k:'attendance',t:'出勤报备', i:'🗓️'},
+  {k:'reports',   t:'报表中心', i:'📑'},
+  {k:'settings',  t:'基础设置', i:'⚙️'},
+];
+let curPage='dashboard';
+function renderNav(){
+  $('#nav').innerHTML = PAGES.map(p=>`<button class="${p.k===curPage?'active':''}" onclick="go('${p.k}')"><span class="ico">${p.i}</span>${p.t}</button>`).join('');
+}
+function go(k){ curPage=k; renderNav(); renderPage(); }
+function renderPage(){
+  const meta=PAGES.find(p=>p.k===curPage);
+  $('#pageTitle').textContent = meta? (meta.i+'  '+meta.t) : '';
+  const fn = {dashboard:renderDashboard,batches:renderBatches,efficiency:renderEfficiency,qc:renderQc,attendance:renderAttendance,reports:renderReports,settings:renderSettings}[curPage];
+  $('#view').innerHTML = fn? fn() : '';
+  updateMeUI();
+}
+function switchProject(pid){ curPid=pid; renderPage(); }
+
+/* ---------- 身份选择与管理密码 ---------- */
+function updateMeUI(){ const el=$('#meTxt'); if(el) el.textContent=identityLabel()||'…'; }
+function openIdentity(){
+  if(bootstrapMode()){ go('settings'); toast('先添加人员和项目，之后再设身份','bad'); return; }
+  const ps=persons();
+  const cur=ME&&ME.id?ME.id:'';
+  showOverlay(`<h3>👤 选择你的身份</h3>
+    <div class="hint" style="margin-bottom:12px">权限说明：<b>负责人</b>可管理项目/批次/单价/人员及所有人记录（设过管理密码需验证）；<b>标注</b>只能录入/修改自己的标注；<b>质检</b>只能录入自己的质检；选择「只读浏览」则仅查看、不能录入。</div>
+    <div class="field"><label>我是</label><select id="meSel" onchange="toggleMgrArea()">
+      <option value="">— 只读浏览（不录入）—</option>
+      ${ps.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(p.name)}（${esc(rolesOf(p).join('/')||'成员')}）</option>`).join('')}
+    </select></div>
+    <div id="mgrArea" style="display:none;margin-top:12px">
+      <div class="field"><label>管理密码</label><input id="me_pw" type="password" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter')enterIdentity()"></div>
+      <div id="mgrPwHint" class="hint" style="display:none;margin-top:6px">本会话已验证过管理密码，可留空直接进入；输错仍会拦截。</div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeOverlay()">取消</button>
+      <button class="btn" onclick="enterIdentity()">进入</button>
+    </div>`);
+  toggleMgrArea();
+}
+function toggleMgrArea(){
+  const sel=$('#meSel'); const box=$('#mgrArea'); if(!sel||!box) return;
+  const p=person(sel.value);
+  const needBox = p && rolesOf(p).includes('负责人') && cfg().mgrPassword; // 负责人且设过密码：一定显示密码框
+  box.style.display = needBox? 'block':'none';
+  const hint=$('#mgrPwHint'); if(hint) hint.style.display = (needBox && SYNC.mgrOk)? 'block':'none';
+}
+function enterIdentity(){
+  const id=$('#meSel').value;
+  if(!id){ ME=null; SYNC.mgrOk=false; saveMe(); closeOverlay(); renderPage(); updateMeUI(); toast('已切换为只读浏览','ok'); return; }
+  const p=person(id); if(!p) return;
+  const isMgr = rolesOf(p).includes('负责人');
+  if(isMgr && cfg().mgrPassword){            // 负责人 + 已设密码：校验（已验证时留空放行，填错仍拦）
+    const el=$('#me_pw'); const typed = el? el.value.trim():'';
+    if(!(SYNC.mgrOk && !typed) && !verifyManagerPw(typed)){
+      toast('管理密码错误，请输入正确密码（当前统一密码 040129）','bad');
+      if(el){ el.focus(); el.select(); } return;
+    }
+  }
+  ME={id:id}; saveMe();
+  SYNC.mgrOk = isMgr;
+  closeOverlay(); renderPage(); updateMeUI(); toast('已以「'+p.name+'」身份进入'+(isMgr?'（管理权限已启用）':''),'ok');
+}
+function exitIdentity(){ ME=null; SYNC.mgrOk=false; saveMe(); renderPage(); updateMeUI(); toast('已退出身份（只读）'); }
+
+/* ============================ 项目选择器 ============================ */
+function renderProjSel(){
+  const sel=$('#projSel'); const opts=S.projects.map(p=>`<option value="${p.id}" ${p.id===curPid?'selected':''}>${esc(p.name)}</option>`).join('');
+  sel.innerHTML = opts || '<option value="">（无项目）</option>';
+  if(!curPid && S.projects.length) curPid=S.projects[0].id;
+  if(S.projects.length && !S.projects.find(p=>p.id===curPid)) curPid=S.projects[0].id;
+}
+
+/* ============================ 驾驶舱 ============================ */
+function renderDashboard(){
+  if(!curPid) return emptyBlock('还没有项目，点击右上角「＋ 项目」创建一个');
+  const p=project(curPid); const bs=batchesOf(curPid);
+  const totalTasks=bs.reduce((s,b)=>s+(Number(b.totalTasks)||0),0);
+  const totalDone=bs.reduce((s,b)=>s+batchDone(b.id),0);
+  const totalRemain=totalTasks-totalDone; const pct= totalTasks>0? totalDone/totalTasks*100 : 0;
+  const totalValue=S.daily.filter(d=>{const b=batch(d.batchId); return b&&b.projectId===curPid;}).reduce((s,d)=>s+valueOf(d),0);
+  const today=todayStr();
+  const todayValue=S.daily.filter(d=>d.date===today && batch(d.batchId)&&batch(d.batchId).projectId===curPid).reduce((s,d)=>s+valueOf(d),0);
+  // 本月人效
+  const ym=today.slice(0,7);
+  const personVals={};
+  S.daily.filter(d=>d.date&&d.date.slice(0,7)===ym && batch(d.batchId)&&batch(d.batchId).projectId===curPid)
+    .forEach(d=>{ const pid=d.personId; personVals[pid]=(personVals[pid]||0)+valueOf(d); });
+  const rank=Object.entries(personVals).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const alerts=[];
+  persons().forEach(pp=>{ if(hasRole(pp,'标注')){ const s=missStreak(pp.id,'eff'); if(s>=3) alerts.push({name:pp.name,kind:'标注',days:s}); }
+    if(hasRole(pp,'质检')){ const s=missStreak(pp.id,'qc'); if(s>=3) alerts.push({name:pp.name,kind:'质检',days:s}); } });
+
+  let html=`
+  <div class="cards">
+    <div class="card"><div class="k">项目名称</div><div class="v" style="font-size:20px">${esc(p.name)}</div><div class="s">${esc(p.startDate||'?')} ~ ${esc(p.endDate||'进行中')}</div></div>
+    <div class="card"><div class="k">批次总数</div><div class="v">${bs.length}</div><div class="s">任务总量 ${totalTasks} 条</div></div>
+    <div class="card"><div class="k">已完成(合格)</div><div class="v up">${totalDone}</div><div class="s">剩余 ${totalRemain} 条</div></div>
+    <div class="card"><div class="k">整体进度</div><div class="v">${fmtNum(pct,1)}%</div><div class="progress" style="margin-top:8px"><i style="width:${Math.min(pct,100)}%"></i></div></div>
+    <div class="card"><div class="k">总产值</div><div class="v money">${money(totalValue)}</div><div class="s">今日 ${money(todayValue)}</div></div>
+  </div>`;
+  if(alerts.length){ html+=`<div class="panel" style="border:1px solid var(--bad);background:var(--bad-soft)"><h2 style="color:var(--bad)">🚨 连续3天以上未达标提醒</h2><div>`+alerts.map(a=>`<span class="badge bad" style="font-size:13px;padding:7px 12px;margin:0 8px 8px 0">${esc(a.name)} · ${a.kind} · 连续${a.days}天未达标 🔥</span>`).join('')+`</div></div>`; }
+
+  html+=`<div class="two">
+    <div class="panel"><h2>批次进度</h2>${bs.length? batchProgressList(bs) : '<div class="empty">暂无批次</div>'}</div>
+    <div class="panel"><h2>本月产值 Top</h2>${rank.length? rankHTML(rank) : '<div class="empty">本月暂无数据</div>'}</div>
+  </div>`;
+
+  const recent=S.daily.filter(d=>batch(d.batchId)&&batch(d.batchId).projectId===curPid).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+  html+=`<div class="panel"><h2>最近录入</h2>${recent.length? dailyTable(recent) : '<div class="empty">暂无录入</div>'}</div>`;
+  return html;
+}
+function batchProgressList(bs){
+  return `<div class="tbl-wrap"><table><thead><tr><th>批次号</th><th class="num">总量</th><th class="num">已完成</th><th class="num">剩余</th><th style="width:180px">标注进度</th><th>质检(已检/应检)</th><th class="num">质检%</th></tr></thead><tbody>`+
+  bs.map(b=>{const s=batchStats(b.id); const q=batchQcStats(b.id); const overdue=b.deadline && b.deadline < todayStr() && s.pct < 100;return `<tr>
+    <td><b>${esc(b.batchNo)}</b>${overdue?' <span class="badge bad">超期</span>':''}</td>
+    <td class="num">${s.total}</td><td class="num up">${s.done}</td>
+    <td class="num ${s.remaining<0?'down':''}">${s.remaining}</td>
+    <td><div class="progress"><i style="width:${Math.min(s.pct,100)}%"></i></div><span class="pct">${fmtNum(s.pct,1)}%</span></td>
+    <td class="num">${q.checked} / ${q.planned}</td>
+    <td class="num pct">${q.planned>0?fmtNum(q.pct,1)+'%':'-'}</td></tr>`;}).join('')+
+  `</tbody></table></div>`;
+}
+function rankHTML(rank){
+  return `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>人员</th><th class="num">本月产值</th></tr></thead><tbody>`+
+  rank.map((e,i)=>`<tr><td>${i+1}</td><td>${esc((person(e[0])||{}).name||'未知')}</td><td class="num money">${money(e[1])}</td></tr>`).join('')+
+  `</tbody></table></div>`;
+}
+function dailyTable(list){
+  return `<div class="tbl-wrap"><table><thead><tr><th>日期</th><th>人员</th><th>批次</th><th class="num">完成</th><th class="num">合格</th><th class="num">工时</th><th class="num">产值</th></tr></thead><tbody>`+
+  list.map(d=>{const b=batch(d.batchId); const p=person(d.personId);
+    return `<tr><td>${esc(d.date)}</td><td>${esc(p?p.name:'未知')}</td><td>${esc(b?b.batchNo:'-')}</td>
+      <td class="num">${d.completed}</td><td class="num up">${qualifiedOf(d)}</td><td class="num">${d.hours}</td><td class="num money">${money(valueOf(d))}</td></tr>`;}).join('')+
+  `</tbody></table></div>`;
+}
+
+/* ============================ 批次管理 ============================ */
+function renderBatches(){
+  if(!curPid) return emptyBlock('请先创建项目');
+  const bs=batchesOf(curPid);
+  const mgr=canManage();
+  let html=`<div class="panel"><h2>批次管理 <span class="sub">录入批次号与总任务条数，进度自动计算</span></h2>`;
+  html+= mgr? `
+    <div class="row">
+      <div class="field"><label>批次号</label><input id="nb_no" placeholder="如 A-2026-001"></div>
+      <div class="field"><label>总任务条数</label><input id="nb_total" type="number" min="0" placeholder="1000"></div>
+      <div class="field"><label>单价(元/条)<span class="muted">留空=项目默认</span></label><input id="nb_price" type="number" min="0" step="0.01" placeholder="${project(curPid)?project(curPid).unitPrice:''}"></div>
+      <div class="field"><label>质检比例%<span class="muted">留空=项目默认</span></label><input id="nb_qa" type="number" min="0" max="100" placeholder="100"></div>
+      <div class="field"><label>截止日期</label><input id="nb_deadline" type="date"></div>
+      <div class="field"><label>备注</label><input id="nb_note" placeholder="可选"></div>
+      <button class="btn" onclick="addBatch()">＋ 新增批次</button>
+    </div>` : `<div class="hint" style="margin-bottom:12px">仅负责人可新增 / 编辑批次、单价与质检比例。当前为只读。</div>`;
+  if(!bs.length){ html+='<div class="empty">还没有批次，请先新增</div>'; }
+  else{
+    html+=`<div class="tbl-wrap"><table><thead><tr><th>批次号</th><th class="num">总任务</th><th class="num">已完成(合格)</th><th class="num">剩余</th><th style="width:200px">进度</th><th class="num">单价</th><th class="num">质检%</th><th>截止</th><th>备注</th><th></th></tr></thead><tbody>`;
+    bs.forEach(b=>{ const s=batchStats(b.id); const overdue=b.deadline && b.deadline < todayStr() && s.pct < 100;
+      html+=`<tr>
+        <td><b>${esc(b.batchNo)}</b>${overdue?' <span class="badge bad">超期</span>':''}</td>
+        <td class="num">${s.total}</td><td class="num up">${s.done}</td><td class="num ${s.remaining<0?'down':''}">${s.remaining}</td>
+        <td><div class="progress"><i style="width:${Math.min(s.pct,100)}%"></i></div><span class="pct">${fmtNum(s.pct,1)}%</span></td>
+        <td class="num">${money(unitPriceOf(b.id))}</td>
+        <td class="num">${qaRateOf(b.id)}%</td>
+        <td>${esc(b.deadline||'-')}</td><td class="muted">${esc(b.note||'')}</td>
+        <td>${mgr? `<button class="btn link" onclick="editBatch('${b.id}')">编辑</button><button class="btn link danger" onclick="delBatch('${b.id}')">删除</button>`:''}</td></tr>`; });
+    html+=`</tbody></table></div>`;
+  }
+  html+=`<div class="actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+    <button class="btn ghost" onclick="exportBatchDetail()">导出批次明细</button></div></div>`;
+  return html;
+}
+function addBatch(){
+  if(!canManage()) return toast('仅负责人可新增批次','bad');
+  const no=$('#nb_no').value.trim(); const total=Number($('#nb_total').value);
+  if(!no) return toast('请填写批次号','bad');
+  if(!(total>0)) return toast('请填写总任务条数','bad');
+  const price=$('#nb_price').value.trim(); const qa=$('#nb_qa').value.trim();
+  S.batches.push({id:uid(),projectId:curPid,batchNo:no,totalTasks:total,unitPrice:price===''?null:Number(price),qaRate:qa===''?null:Math.min(100,Math.max(0,Number(qa)||100)),deadline:$('#nb_deadline').value,note:$('#nb_note').value,createdAt:todayStr()});
+  save(); renderPage(); toast('批次已新增','ok');
+}
+function editBatch(id){
+  const b=batch(id); if(!b) return;
+  if(!canManage()) return toast('仅负责人可编辑批次','bad');
+  showOverlay(`<h3>编辑批次 ${esc(b.batchNo)}</h3>
+    <div class="field"><label>批次号</label><input id="eb_no" value="${esc(b.batchNo)}"></div>
+    <div class="field" style="margin-top:10px"><label>总任务条数</label><input id="eb_total" type="number" min="0" value="${b.totalTasks}"></div>
+    <div class="field" style="margin-top:10px"><label>单价(元/条)</label><input id="eb_price" type="number" min="0" step="0.01" value="${b.unitPrice==null?'':b.unitPrice}"></div>
+    <div class="field" style="margin-top:10px"><label>质检比例% <span class="muted">留空=项目默认</span></label><input id="eb_qa" type="number" min="0" max="100" value="${b.qaRate!=null?b.qaRate:''}"></div>
+    <div class="field" style="margin-top:10px"><label>截止日期</label><input id="eb_deadline" type="date" value="${esc(b.deadline||'')}"></div>
+    <div class="field" style="margin-top:10px"><label>备注</label><input id="eb_note" value="${esc(b.note||'')}"></div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button><button class="btn" onclick="saveBatchEdit('${id}')">保存</button></div>`);
+}
+function saveBatchEdit(id){
+  const b=batch(id); if(!b) return;
+  if(!canManage()) return toast('仅负责人可编辑批次','bad');
+  b.batchNo=$('#eb_no').value.trim(); b.totalTasks=Number($('#eb_total').value)||0;
+  const pr=$('#eb_price').value.trim(); b.unitPrice= pr===''?null:Number(pr);
+  const qa=$('#eb_qa').value.trim(); b.qaRate= qa===''?null:Math.min(100,Math.max(0,Number(qa)||100));
+  b.deadline=$('#eb_deadline').value; b.note=$('#eb_note').value;
+  save(); closeOverlay(); renderPage(); toast('已保存','ok');
+}
+function delBatch(id){
+  if(!canManage()) return toast('仅负责人可删除批次','bad');
+  if(!confirm('删除该批次？（不影响已录入的人效记录）')) return;
+  S.batches=S.batches.filter(b=>b.id!==id); save(); renderPage(); toast('已删除');
+}
+
+/* ============================ 每日目标与达成 ============================ */
+let goalDate = todayStr();
+function dGoal(p){ const v=p&&p.dTarget; return v==null||v==='' ? 0 : (Number(v)||0); }
+function qGoal(p){ const v=p&&p.qTarget; return v==null||v==='' ? 0 : (Number(v)||0); }
+function gsetDate(v){ if(v) goalDate=v; renderPage(); }
+function dayActual(pid, kind){
+  const date=goalDate;
+  if(kind==='qc') return S.qc.filter(q=>q.projectId===curPid&&q.personId===pid&&q.date===date).reduce((s,q)=>s+(Number(q.checked)||0),0);
+  return S.daily.filter(d=>d.projectId===curPid&&d.personId===pid&&d.date===date).reduce((s,d)=>s+qualifiedOf(d),0);
+}
+function applyAllGoal(kind){
+  if(!canManage()) return;
+  const inp=$('#goal_all_'+kind); const n=Math.max(0,Number(inp? inp.value:0)||0);
+  persons().filter(p=> kind==='qc'? hasRole(p,'质检') : hasRole(p,'标注')).forEach(p=>{ if(kind==='qc') p.qTarget=n; else p.dTarget=n; });
+  save(); renderPage(); toast('已为'+(kind==='qc'?'质检':'标注')+'全体设置日目标 '+n,'ok');
+}
+function setGoal(pid,kind,v){
+  if(!canManage()) return;
+  const p=person(pid); if(!p) return; const n=Math.max(0,Number(v)||0);
+  if(kind==='qc') p.qTarget=n; else p.dTarget=n;
+  save(); renderPage(); toast('已保存 '+p.name+' 日目标 '+n,'ok');
+}
+function missStreak(pid, kind){
+  const goal = kind==='qc'? qGoal(person(pid)) : dGoal(person(pid));
+  if(goal<=0) return 0;
+  const recs = kind==='qc'
+    ? S.qc.filter(q=>q.projectId===curPid && q.personId===pid && q.date<=todayStr())
+    : S.daily.filter(d=>d.projectId===curPid && d.personId===pid && d.date<=todayStr());
+  if(!recs.length) return 0;
+  const byDay={};
+  recs.forEach(r=>{ byDay[r.date]=(byDay[r.date]||0)+(kind==='qc'? (Number(r.checked)||0) : qualifiedOf(r)); });
+  const dates=Object.keys(byDay).sort().reverse();
+  let streak=0;
+  for(const date of dates){ if(byDay[date] < goal) streak++; else break; }
+  return streak; // 连续“有记录且未达标”的天数（不含无记录日）
+}
+function goalRow(p, kind, actual, days){
+  const goal= kind==='qc'? qGoal(p): dGoal(p);
+  const expect = goal>0 && days>0 ? goal*days : 0;
+  const rate = expect>0 ? round2(actual/expect*100) : null;
+  return {goal, rate};
+}
+function rateBadge(rate){
+  if(rate==null) return '<span class="badge muted">-</span>';
+  if(rate>=100) return '<span class="badge ok">'+fmtNum(rate,0)+'%</span>';
+  if(rate>=80) return '<span class="badge warn">'+fmtNum(rate,0)+'%</span>';
+  return '<span class="badge bad">'+fmtNum(rate,0)+'%</span>';
+}
+function goalPanelHTML(kind){
+  if(!curPid) return '';
+  const isQc=kind==='qc';
+  const ps=persons().filter(p=> isQc? hasRole(p,'质检') : hasRole(p,'标注'));
+  const mgr=canManage();
+  let h=`<div class="panel"><h2>🎯 ${isQc?'质检':'标注'}每日产量目标 · ${esc(goalDate)} 达成</h2>
+    <div class="row" style="align-items:center">
+      <div class="field"><label>查看日期</label><input type="date" value="${goalDate}" onchange="gsetDate(this.value)"></div>
+      ${mgr? `<div class="field"><label>统一设${isQc?'质检':'标注'}目标(条/天)</label><input id="goal_all_${kind}" type="number" min="0" style="width:90px" placeholder="如300"></div>
+      <button class="btn ghost" onclick="applyAllGoal('${kind}')">应用到全体${isQc?'质检':'标注'}</button>`:''}
+      <span class="sp" style="flex:1"></span>
+      <span class="hint">达成率=当日“${isQc?'质检条数':'合格条数'}”÷日目标；<span class="badge ok">≥100%</span><span class="badge warn">80~99%</span><span class="badge bad">&lt;80%</span>${mgr?'（点数字可直接改）':'　🔒 修改目标请以负责人身份进 👤'}</span>
+    </div>`;
+  if(!ps.length){ h+='<div class="empty">暂无人员设置该职位（请负责人到「基础设置」设置职位）</div></div>'; return h; }
+  h+=`<div class="tbl-wrap"><table><thead><tr><th>${isQc?'质检员':'标注员'}</th><th>团队</th><th class="num">日目标(条)</th><th class="num">当日实际</th><th class="num">达成率</th><th>状态</th></tr></thead><tbody>`;
+  ps.forEach(p=>{
+    const goal= isQc? qGoal(p): dGoal(p);
+    const act= dayActual(p.id, kind);
+    const rate= goal>0? act/goal*100 : null;
+    const stk= missStreak(p.id, kind);
+    let targetCell;
+    if(mgr){ targetCell=`<input type="number" min="0" value="${goal||''}" placeholder="未设" style="width:76px" title="负责人可修改" onchange="setGoal('${p.id}','${kind}',this.value)">`; }
+    else { targetCell= goal>0? String(goal):'<span class="muted">未设</span>'; }
+    let status;
+    if(goal<=0) status='<span class="badge muted">未设目标</span>';
+    else if(stk>=3) status='<span class="badge bad">连续'+stk+'天未达标 🔥</span>';
+    else if(rate>=100) status='<span class="badge ok">今日已达标</span>';
+    else if(rate>=80) status='<span class="badge warn">今日偏低'+(stk>1?'·已连续'+stk+'天':'')+'</span>';
+    else status='<span class="badge bad">今日未达标'+(stk>1?'·已连续'+stk+'天':'')+' ⚠</span>';
+    h+=`<tr${stk>=3?' style="background:var(--bad-soft)"':''}><td><b>${esc(p.name)}</b></td><td class="muted">${esc(p.team||'-')}</td>
+      <td class="num">${targetCell}</td><td class="num up">${act}</td>
+      <td class="num">${rate!=null? fmtNum(rate,0)+'%' : '-'}</td><td>${status}</td></tr>`;
+  });
+  h+=`</tbody></table></div></div>`;
+  return h;
+}
+
+/* ============================ 人效统计 ============================ */
+function renderEfficiency(){
+  if(!curPid) return emptyBlock('请先创建项目');
+  const bs=batchesOf(curPid); const ps=persons();
+  const mgr=canManage();
+  const entryPs = mgr? ps : (canRecordDaily()&&mePerson()? [mePerson()] : []);
+  const entryNote = entryPs.length? '' : (bootstrapMode()? '<div class="hint" style="margin-bottom:12px">初始化阶段：先添加人员并设职位，即可录入。</div>' : '<div class="hint" style="margin-bottom:12px">当前身份无标注录入权限（只读）。请点击右上角 👤 切换为「标注」或「负责人」。</div>');
+  const addRow = entryPs.length? `
+    <div class="row">
+      <div class="field"><label>日期</label><input id="d_date" type="date" value="${todayStr()}"></div>
+      <div class="field"><label>人员</label><select id="d_person">${entryPs.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>批次</label><select id="d_batch">${bs.map(b=>`<option value="${b.id}">${esc(b.batchNo)}</option>`).join('')||'<option value="">（无批次）</option>'}</select></div>
+      <div class="field"><label>完成条数</label><input id="d_completed" type="number" min="0" placeholder="100" style="width:90px"></div>
+      <div class="field"><label>合格条数 <span class="muted">默认=完成</span></label><input id="d_qualified" type="number" min="0" style="width:90px"></div>
+      <div class="field"><label>工时(小时)</label><input id="d_hours" type="number" min="0" step="0.5" placeholder="8" style="width:90px"></div>
+      <div class="field"><label>备注</label><input id="d_note" placeholder="可选"></div>
+      <button class="btn" onclick="addDaily()">＋ 录入</button>
+    </div>` : '';
+  let html=goalPanelHTML('eff')+`<div class="panel"><h2>人效统计 <span class="sub">每天每人完成条数 + 工时 → 自动算每小时产出与产值</span></h2>
+    ${entryNote}${addRow}
+    <div class="row" style="margin-top:4px">
+      <div class="field"><label>从</label><input type="date" value="${esc(effFilters.from)}" onchange="setEffFilter('from',this.value)"></div>
+      <div class="field"><label>到</label><input type="date" value="${esc(effFilters.to)}" onchange="setEffFilter('to',this.value)"></div>
+      <div class="field"><label>筛选批次</label><select onchange="setEffFilter('batch',this.value)"><option value="">全部</option>${bs.map(b=>`<option value="${b.id}" ${effFilters.batch===b.id?'selected':''}>${esc(b.batchNo)}</option>`).join('')}</select></div>
+      <div class="field"><label>筛选人员</label><select onchange="setEffFilter('person',this.value)"><option value="">全部</option>${ps.map(p=>`<option value="${p.id}" ${effFilters.person===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field" style="margin-left:auto"><button class="btn ghost" onclick="downloadDailyTemplate()">下载日报模板</button>
+      <button class="btn ghost" onclick="openImportModal()">导入日报</button>
+      <button class="btn" onclick="exportDailyDetail()">导出明细</button></div>
+    </div>`;
+
+  let list=S.daily.filter(d=>{const b=batch(d.batchId); return b&&b.projectId===curPid;});
+  list=applyDailyFilters(list);
+  list.sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||'').localeCompare(a.createdAt||''));
+
+  const totals=list.reduce((t,d)=>{t.c+=Number(d.completed)||0;t.q+=qualifiedOf(d);t.h+=Number(d.hours)||0;t.v+=valueOf(d);return t;},{c:0,q:0,h:0,v:0});
+  const avgH= totals.h>0? round2(totals.q/totals.h) : 0;
+
+  html+=`<div class="tbl-wrap"><table><thead><tr>
+    <th>日期</th><th>人员</th><th>批次</th>
+    <th class="num">完成</th><th class="num">合格</th><th class="num">返工</th>
+    <th class="num">工时</th><th class="num">时产(条/h)</th><th class="num">单价</th><th class="num">产值</th><th>备注</th><th></th></tr></thead><tbody>`;
+  if(!list.length) html+=`<tr><td colspan="12" class="empty">暂无记录</td></tr>`;
+  list.forEach(d=>{ const b=batch(d.batchId); const p=person(d.personId);
+    html+=`<tr>
+      <td>${esc(d.date)}</td><td>${esc(p?p.name:'未知')}</td><td>${esc(b?b.batchNo:'-')}</td>
+      <td class="num">${d.completed}</td><td class="num up">${qualifiedOf(d)}</td><td class="num ${qualifiedOf(d)<Number(d.completed)?'down':''}">${Number(d.completed)-qualifiedOf(d)}</td>
+      <td class="num">${d.hours}</td><td class="num">${fmtNum(hourlyOf(d),1)}</td>
+      <td class="num">${money(unitPriceOf(d.batchId))}</td><td class="num money">${money(valueOf(d))}</td>
+      <td class="muted">${esc(d.note||'')}</td>
+      <td>${canTouchDaily(d)? `<button class="btn link" onclick="editDaily('${d.id}')">编辑</button><button class="btn link danger" onclick="delDaily('${d.id}')">删除</button>`:''}</td></tr>`; });
+  html+=`</tbody><tfoot class="tfoot"><tr>
+    <td colspan="3">合计</td>
+    <td class="num">${totals.c}</td><td class="num">${totals.q}</td><td class="num">${totals.c-totals.q}</td>
+    <td class="num">${totals.h}</td><td class="num">${fmtNum(avgH,1)}</td><td class="num"></td><td class="num money">${money(totals.v)}</td><td colspan="2"></td></tr></tfoot></table></div></div>`;
+  return html;
+}
+let effFilters = {from:'', to:'', batch:'', person:''};
+function setEffFilter(k,v){ effFilters[k]=v; renderPage(); }
+function applyDailyFilters(list){
+  if(effFilters.from) list=list.filter(d=>d.date>=effFilters.from);
+  if(effFilters.to) list=list.filter(d=>d.date<=effFilters.to);
+  if(effFilters.batch) list=list.filter(d=>d.batchId===effFilters.batch);
+  if(effFilters.person) list=list.filter(d=>d.personId===effFilters.person);
+  return list;
+}
+function addDaily(){
+  if(!canRecordDaily()) return toast('你没有标注录入权限','bad');
+  const date=$('#d_date').value; const pid=$('#d_person').value; const bid=$('#d_batch').value;
+  if(!canManage() && pid!==(mePerson()||{}).id) return toast('标注员只能录入自己的记录','bad');
+  const completed=Number($('#d_completed').value); const hours=Number($('#d_hours').value||0);
+  const qRaw=$('#d_qualified').value.trim();
+  if(!date) return toast('请选择日期','bad');
+  if(!pid) return toast('请选择人员','bad');
+  if(!bid) return toast('请选择批次','bad');
+  if(!(completed>=0)) return toast('请填写完成条数','bad');
+  const qualified = qRaw===''? completed : Number(qRaw);
+  if(qualified>completed) return toast('合格条数不能大于完成条数','bad');
+  S.daily.push({id:uid(),projectId:curPid,personId:pid,batchId:bid,date,completed,qualified,hours,note:$('#d_note').value,createdAt:new Date().toISOString()});
+  save(); renderPage(); toast('已录入','ok');
+}
+function delDaily(id){ const d=S.daily.find(x=>x.id===id); if(d&&!canTouchDaily(d)) return toast('只能删除自己的记录','bad'); if(!confirm('删除该条记录？')) return; S.daily=S.daily.filter(x=>x.id!==id); save(); renderPage(); }
+function editDaily(id){
+  const d=S.daily.find(x=>x.id===id); if(!d) return;
+  if(!canTouchDaily(d)) return toast('只能编辑自己的记录','bad');
+  const opts= canManage()? persons() : (person(d.personId)? [person(d.personId)] : persons());
+  const bs=batchesOf(curPid);
+  showOverlay(`<h3>编辑人效记录</h3>
+    <div class="row">
+      <div class="field"><label>日期</label><input id="ed_date" type="date" value="${esc(d.date)}"></div>
+      <div class="field"><label>人员</label><select id="ed_person">${opts.map(p=>`<option value="${p.id}" ${p.id===d.personId?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>批次</label><select id="ed_batch">${bs.map(b=>`<option value="${b.id}" ${b.id===d.batchId?'selected':''}>${esc(b.batchNo)}</option>`).join('')}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>完成条数</label><input id="ed_completed" type="number" min="0" value="${d.completed}" style="width:100px"></div>
+      <div class="field"><label>合格条数</label><input id="ed_qualified" type="number" min="0" value="${qualifiedOf(d)}" style="width:100px"></div>
+      <div class="field"><label>工时(小时)</label><input id="ed_hours" type="number" min="0" step="0.5" value="${d.hours}" style="width:100px"></div>
+      <div class="field" style="flex:1"><label>备注</label><input id="ed_note" value="${esc(d.note||'')}"></div>
+    </div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button><button class="btn" onclick="saveDailyEdit('${id}')">保存</button></div>`);
+}
+function saveDailyEdit(id){
+  const d=S.daily.find(x=>x.id===id); if(!d) return;
+  if(!canTouchDaily(d)) return toast('只能编辑自己的记录','bad');
+  const completed=Number($('#ed_completed').value); const qRaw=$('#ed_qualified').value.trim();
+  const qualified = qRaw===''? completed : Number(qRaw);
+  if(qualified>completed) return toast('合格条数不能大于完成条数','bad');
+  d.date=$('#ed_date').value; d.personId=$('#ed_person').value; d.batchId=$('#ed_batch').value;
+  d.completed=completed; d.qualified=qualified; d.hours=Number($('#ed_hours').value)||0; d.note=$('#ed_note').value;
+  save(); closeOverlay(); renderPage(); toast('已保存','ok');
+}
+
+/* ============================ 质检管理 ============================ */
+let qcFilters={from:'',to:'',batch:'',person:''};
+function setQcFilter(k,v){ qcFilters[k]=v; renderPage(); }
+function applyQcFilters(list){
+  if(qcFilters.from) list=list.filter(q=>q.date>=qcFilters.from);
+  if(qcFilters.to) list=list.filter(q=>q.date<=qcFilters.to);
+  if(qcFilters.batch) list=list.filter(q=>q.batchId===qcFilters.batch);
+  if(qcFilters.person) list=list.filter(q=>q.personId===qcFilters.person);
+  return list;
+}
+function qcStaff(){
+  const r=persons().filter(p=>hasRole(p,'质检'));
+  return r.length? r : persons();
+}
+function renderQc(){
+  if(!curPid) return emptyBlock('请先创建项目');
+  const bs=batchesOf(curPid);
+  const mgr=canManage();
+  /* 筛选下拉（查看用）：有质检职位的人，没设则全部 */
+  const viewPs=qcStaff();
+  /* 录入人选：负责人=所有质检；质检员=只能录自己；其他/只读=不能录入 */
+  const entryPs = mgr ? viewPs : (canRecordQc()&&mePerson()? [mePerson()] : []);
+  let html=goalPanelHTML('qc');
+  if(entryPs.length){
+    html+=`<div class="panel"><h2>录入质检 <span class="sub">质检量只计工作量，不计产值</span></h2>
+    <div class="row">
+      <div class="field"><label>日期</label><input id="q_date" type="date" value="${todayStr()}"></div>
+      <div class="field"><label>质检员</label><select id="q_person">${entryPs.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>批次</label><select id="q_batch">${bs.map(b=>`<option value="${b.id}">${esc(b.batchNo)}</option>`).join('')||'<option value="">（无批次）</option>'}</select></div>
+      <div class="field"><label>质检条数</label><input id="q_checked" type="number" min="0" placeholder="100" style="width:92px"></div>
+      <div class="field"><label>不合格条数</label><input id="q_bad" type="number" min="0" placeholder="0" style="width:92px"></div>
+      <div class="field"><label>备注</label><input id="q_note" placeholder="可选"></div>
+      <button class="btn" onclick="addQc()">＋ 录入</button>
+    </div></div>`;
+  } else if(bootstrapMode()){
+    html+=`<div class="panel"><h2>录入质检</h2><div class="empty">初始化阶段：请先在「基础设置」添加人员并设置职位（质检）后录入。</div></div>`;
+  }
+  html+=`<div class="panel"><h2>质检记录 <span class="sub">质检量只计工作量，不计产值</span></h2>
+    <div class="row" style="margin-top:0">
+      <div class="field"><label>从</label><input type="date" value="${esc(qcFilters.from)}" onchange="setQcFilter('from',this.value)"></div>
+      <div class="field"><label>到</label><input type="date" value="${esc(qcFilters.to)}" onchange="setQcFilter('to',this.value)"></div>
+      <div class="field"><label>筛选批次</label><select onchange="setQcFilter('batch',this.value)"><option value="">全部</option>${bs.map(b=>`<option value="${b.id}" ${qcFilters.batch===b.id?'selected':''}>${esc(b.batchNo)}</option>`).join('')}</select></div>
+      <div class="field"><label>筛选质检员</label><select onchange="setQcFilter('person',this.value)"><option value="">全部</option>${viewPs.map(p=>`<option value="${p.id}" ${qcFilters.person===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field" style="margin-left:auto"><button class="btn" onclick="exportQcDetail()">导出质检明细</button></div>
+    </div>`;
+  let list=S.qc.filter(q=>{const b=batch(q.batchId); return b&&b.projectId===curPid;});
+  list=applyQcFilters(list);
+  list.sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||'').localeCompare(a.createdAt||''));
+  const t=list.reduce((s,q)=>{s.c+=Number(q.checked)||0;s.b+=qcBadOf(q);return s;},{c:0,b:0});
+  html+=`<div class="tbl-wrap"><table><thead><tr><th>日期</th><th>质检员</th><th>批次</th><th class="num">质检条数</th><th class="num">不合格</th><th class="num">合格率</th><th>备注</th><th></th></tr></thead><tbody>`;
+  if(!list.length) html+=`<tr><td colspan="8" class="empty">暂无质检记录</td></tr>`;
+  list.forEach(q=>{const b=batch(q.batchId);const p=person(q.personId);
+    const qn=Number(q.checked)||0; const rate= qn>0? (qn-qcBadOf(q))/qn*100 : 100;
+    html+=`<tr><td>${esc(q.date)}</td><td>${esc(p?p.name:'未知')}</td><td>${esc(b?b.batchNo:'-')}</td>
+      <td class="num">${q.checked}</td><td class="num down">${qcBadOf(q)}</td>
+      <td class="num"><span class="badge ${rate>=99?'ok':rate>=90?'warn':'bad'}">${fmtNum(rate,1)}%</span></td>
+      <td class="muted">${esc(q.note||'')}</td>
+      <td>${canTouchQc(q)? `<button class="btn link danger" onclick="delQc('${q.id}')">删除</button>`:''}</td></tr>`; });
+  html+=`</tbody><tfoot class="tfoot"><tr><td colspan="3">合计</td><td class="num">${t.c}</td><td class="num">${t.b}</td><td class="num">${t.c>0?fmtNum((t.c-t.b)/t.c*100,1)+'%':''}</td><td colspan="2"></td></tr></tfoot></table></div></div>`;
+
+  html+=`<div class="panel"><h2>质检量安排与进度 <span class="sub">应检 = 标注合格累计 × 质检比例</span></h2>
+    <div class="hint" style="margin-bottom:12px"><b>安排建议</b>：默认全检 100%（逐条检查已合格的标注）。新员工 / 易错批次 → 保持 100% 全检；熟练老员工 → 可抽检 30%~50%；若某批次质检合格率 &lt;95%，应立即恢复全检，并让对应标注员返工。质检比例可在「批次管理」里按批次单独设置，项目也有默认比例。</div>
+    ${bs.length? qcProgressTable(bs) : '<div class="empty">暂无批次</div>'}</div>`;
+
+  html+=`<div class="panel"><h2>质检员工作量汇总 <span class="sub">按上方筛选范围统计</span></h2>${qcPersonAgg()}</div>`;
+  return html;
+}
+function qcProgressTable(bs){
+  return `<div class="tbl-wrap"><table><thead><tr><th>批次号</th><th class="num">标注合格累计</th><th class="num">质检比例</th><th class="num">应检</th><th class="num">已检</th><th class="num">待检</th><th style="width:160px">质检进度</th><th class="num">质检合格率</th></tr></thead><tbody>`+
+  bs.map(b=>{const s=batchQcStats(b.id);
+    return `<tr><td><b>${esc(b.batchNo)}</b></td>
+      <td class="num">${s.plannedBase}</td><td class="num">${s.rate}%</td>
+      <td class="num">${s.planned}</td><td class="num up">${s.checked}</td><td class="num ${s.remaining>0?'down':''}">${s.remaining}</td>
+      <td><div class="progress"><i style="width:${Math.min(s.pct,100)}%"></i></div></td>
+      <td class="num"><span class="badge ${s.checked>0?(s.passRate>=99?'ok':s.passRate>=90?'warn':'bad'):'muted'}">${s.checked>0?fmtNum(s.passRate,1)+'%':'-'}</span></td></tr>`;}).join('')+
+  `</tbody></table></div>`;
+}
+function qcPersonAgg(){
+  let list=S.qc.filter(q=>{const b=batch(q.batchId); return b&&b.projectId===curPid;});
+  list=applyQcFilters(list);
+  const map={};
+  list.forEach(q=>{ const pid=q.personId; if(!map[pid]) map[pid]={checked:0,bad:0,days:new Set()};
+    map[pid].checked+=Number(q.checked)||0; map[pid].bad+=qcBadOf(q); map[pid].days.add(q.date); });
+  const rows=Object.entries(map).map(([pid,o])=>({personId:pid,days:o.days.size,checked:o.checked,bad:o.bad})).sort((a,b)=>b.checked-a.checked);
+  if(!rows.length) return '<div class="empty">当前范围暂无质检记录</div>';
+  let body=rows.map(a=>{const p=person(a.personId); const rate=a.checked>0? (a.checked-a.bad)/a.checked*100 : 0;
+    return `<tr><td>${esc(p?p.name:'未知')}</td><td class="num">${a.days}</td><td class="num">${a.checked}</td><td class="num down">${a.bad}</td><td class="num"><span class="badge ${rate>=99?'ok':rate>=90?'warn':'bad'}">${fmtNum(rate,1)}%</span></td></tr>`;}).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>质检员</th><th class="num">工作天数</th><th class="num">质检条数</th><th class="num">不合格</th><th class="num">合格率</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function addQc(){
+  if(!canRecordQc()) return toast('你没有质检录入权限','bad');
+  const date=$('#q_date').value; const pid=$('#q_person').value; const bid=$('#q_batch').value;
+  if(!canManage() && pid!==(mePerson()||{}).id) return toast('质检员只能录入自己的记录','bad');
+  const checked=Number($('#q_checked').value); const bad=Number($('#q_bad').value||0);
+  if(!date) return toast('请选择日期','bad');
+  if(!pid) return toast('请选择质检员','bad');
+  if(!bid) return toast('请选择批次','bad');
+  if(!(checked>0)) return toast('请填写质检条数','bad');
+  if(bad>checked) return toast('不合格条数不能大于质检条数','bad');
+  S.qc.push({id:uid(),projectId:curPid,personId:pid,batchId:bid,date,checked,bad,note:$('#q_note').value,createdAt:new Date().toISOString()});
+  save(); renderPage(); toast('质检已录入','ok');
+}
+function delQc(id){ const q=S.qc.find(x=>x.id===id); if(q&&!canTouchQc(q)) return toast('只能删除自己的质检记录','bad'); if(!confirm('删除该质检记录？')) return; S.qc=S.qc.filter(x=>x.id!==id); save(); renderPage(); }
+function exportQcDetail(){
+  let list=S.qc.filter(q=>{const b=batch(q.batchId); return b&&b.projectId===curPid;});
+  list=applyQcFilters(list);
+  if(!list.length) return toast('暂无质检记录','bad');
+  list.sort((a,b)=>a.date.localeCompare(b.date));
+  const aoa=[['日期','质检员','团队','批次','质检条数','不合格','合格率%','备注']];
+  list.forEach(q=>{const b=batch(q.batchId);const p=person(q.personId);
+    const qn=Number(q.checked)||0; const rate= qn>0? round2((qn-qcBadOf(q))/qn*100):'';
+    aoa.push([q.date,p?p.name:'未知',p?p.team||'':'',b?b.batchNo:'-',q.checked,qcBadOf(q),rate,q.note||'']);});
+  makeSheets([{name:'质检明细',aoa}]);
+}
+
+/* ============================ 出勤报备 ============================ */
+let attStart = toISODate(addDays(new Date(),1)); // 周表起始，默认明天
+function attShift(n){ const d=parseDate(attStart); attStart=toISODate(addDays(d,n)); renderPage(); }
+function attSetStart(v){ if(v) attStart=v; renderPage(); }
+function dayCols(){ const start=parseDate(attStart); return Array.from({length:7},(_,i)=>{ const d=addDays(start,i); return {date:toISODate(d), short:(d.getMonth()+1)+'/'+d.getDate(), wd:'周'+'日一二三四五六'[d.getDay()]}; }); }
+function attStored(pid,date){ const r=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date); return r? r.status : ''; }
+function setAttRecord(pid,date,status){ let rec=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date);
+  if(!rec){ rec={id:uid(),projectId:curPid,personId:pid,date,status,note:''}; S.attendance.push(rec); } else rec.status=status; }
+function attCell(el){ const st=el.value; setAttRecord(el.dataset.p, el.dataset.d, st); el.className='attcell '+st; save(); }
+function attOpt(st){ return ['出勤','请假','缺勤'].map(s=>`<option value="${s}" ${s===st?'selected':''}>${s}</option>`).join(''); }
+function attMatrix(ps){
+  const cols=dayCols(); const today=todayStr();
+  let head=`<tr><th class="pcol">人员</th>`+cols.map(c=>`<th>${c.wd}<div class="muted" style="font-size:11px;font-weight:400">${c.short}</div></th>`).join('')+`</tr>`;
+  let rows=ps.map(p=>{ let cells=cols.map(c=>{ const st=attStored(p.id,c.date)||'出勤'; const past=c.date<today;
+      return `<td><select class="attcell ${st}" data-p="${p.id}" data-d="${c.date}" ${past?'disabled title="已过去的日期"':''} onchange="attCell(this)">${attOpt(st)}</select></td>`; }).join('');
+    return `<tr><td class="pcol"><b>${esc(p.name)}</b><div class="muted" style="font-size:11px">${esc(rolesOf(p).join('/')||'成员')}</div></td>${cells}</tr>`; }).join('');
+  return `<div class="tbl-wrap attmatrix"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+function attFill(st){ const cols=dayCols(); persons().forEach(p=>cols.forEach(c=>setAttRecord(p.id,c.date,st))); save(); toast('本周已全部设为「'+st+'」','ok'); renderPage(); }
+function saveWeekAttendance(){ const cols=dayCols(); persons().forEach(p=>cols.forEach(c=>{ const el=document.querySelector(`select[data-p="${p.id}"][data-d="${c.date}"]`); setAttRecord(p.id,c.date, el? el.value:'出勤'); })); save(); toast('本周出勤已保存','ok'); renderPage(); }
+function renderAttendance(){
+  if(!curPid) return emptyBlock('请先创建项目');
+  const ps=persons(); const p=project(curPid);
+  const cols=dayCols();
+  let html=`<div class="panel"><h2>📅 周出勤填报 <span class="sub">行=人员，7列=一周7天；逐格选择后点「保存本周」（建议提前一周填）</span></h2>
+    <div class="row" style="align-items:center">
+      <button class="btn ghost" onclick="attShift(-7)">◀ 上一周</button>
+      <div class="field"><label>本周从</label><input type="date" value="${attStart}" onchange="attSetStart(this.value)"></div>
+      <button class="btn ghost" onclick="attShift(7)">下一周 ▶</button>
+      <span class="badge muted">${cols[0].short}(${cols[0].wd}) ~ ${cols[6].short}(${cols[6].wd})</span>
+      <span class="sp" style="flex:1"></span>
+      <button class="btn ghost" onclick="attFill('出勤')">全员出勤</button>
+      <button class="btn ghost" onclick="attFill('请假')">全员请假</button>
+      <button class="btn" onclick="saveWeekAttendance()">💾 保存本周</button>
+    </div>
+    <div class="hint" style="margin-bottom:12px">项目周期：${esc(p.startDate||'?')} ~ ${esc(p.endDate||'进行中')}（共 ${projectDays(curPid)} 天；出勤率分母=项目自然日含周末，未填报的天计为未出勤）。已过去的日期自动锁定。</div>
+    ${ps.length? attMatrix(ps) : '<div class="empty">请先在「基础设置」添加人员</div>'}
+  </div>`;
+  html+=`<div class="panel"><h2>📋 项目出勤率汇总 <span class="sub">随填报自动更新，项目结束时直接导出</span></h2>
+    ${ps.length? attendanceSummaryTable(ps) : '<div class="empty">暂无人员</div>'}
+    <div class="actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" onclick="exportAttendanceDetail()">导出出勤明细</button>
+      <button class="btn" onclick="exportAttendanceSummary()">导出出勤率汇总</button></div></div>`;
+  return html;
+}
+function attRowsHTML(date){
+  const ps=persons();
+  if(!ps.length) return '<tr><td colspan="4" class="empty">请先在「基础设置」添加人员</td></tr>';
+  return ps.map(p=>{
+    const rec=S.attendance.find(a=>a.projectId===curPid&&a.personId===p.id&&a.date===date);
+    const st=rec?rec.status:'出勤';
+    return `<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.team||'-')}</td>
+      <td><select onchange="updateRowStatus('${p.id}','${date}',this.value)">${['出勤','请假','缺勤'].map(s=>`<option ${s===st?'selected':''}>${s}</option>`).join('')}</select></td>
+      <td><input value="${esc(rec?rec.note||'':'')}" onchange="updateRowNote('${p.id}','${date}',this.value)" placeholder="可选"></td></tr>`;
+  }).join('');
+}
+function refreshAttendanceRows(){
+  const date=$('#a_date')? $('#a_date').value:todayStr(); const wrap=$('#attRows');
+  if(!wrap) return;
+  wrap.innerHTML=attRowsHTML(date);
+}
+function updateRowStatus(pid,date,status){
+  let rec=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date);
+  if(!rec){ rec={id:uid(),projectId:curPid,personId:pid,date,status,note:''}; S.attendance.push(rec); }
+  else rec.status=status; save();
+}
+function updateRowNote(pid,date,note){
+  let rec=S.attendance.find(a=>a.projectId===curPid&&a.personId===pid&&a.date===date);
+  if(!rec){ rec={id:uid(),projectId:curPid,personId:pid,date,status:'出勤',note}; S.attendance.push(rec); }
+  else rec.note=note; save();
+}
+function setAllStatus(st){ const date=$('#a_date').value; persons().forEach(p=>updateRowStatus(p.id,date,st)); refreshAttendanceRows(); }
+function bulkWeekPresent(){
+  if(!persons().length) return toast('请先添加人员','bad');
+  const start=addDays(new Date(),1); let cnt=0;
+  for(let i=0;i<7;i++){ const dt=toISODate(addDays(start,i));
+    persons().forEach(p=>{ const ex=S.attendance.find(a=>a.projectId===curPid&&a.personId===p.id&&a.date===dt);
+      if(!ex){ S.attendance.push({id:uid(),projectId:curPid,personId:p.id,date:dt,status:'出勤',note:''}); cnt++; } }); }
+  save(); renderPage(); toast(`已报备未来7天出勤（新增 ${cnt} 条）`,'ok');
+}
+function saveAttendanceDay(){ save(); toast('当天报备已保存','ok'); renderPage(); }
+function attendanceSummaryTable(ps){
+  let rows='';
+  ps.forEach(p=>{ const a=personAttendance(curPid,p.id);
+    rows+=`<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.team||'-')}</td>
+      <td class="num">${a.total}</td><td class="num up">${a.present}</td><td class="num">${a.absent}</td>
+      <td class="num"><span class="badge ${a.rate>=95?'ok':a.rate>=80?'warn':'bad'}">${fmtNum(a.rate,1)}%</span></td></tr>`; });
+  return `<div class="tbl-wrap"><table><thead><tr><th>人员</th><th>团队</th><th class="num">应出勤(天)</th><th class="num">实际出勤(天)</th><th class="num">缺勤(天)</th><th class="num">出勤率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+/* ============================ 报表中心 ============================ */
+function curWeekValue(){
+  const d=new Date(); const jan4=new Date(d.getFullYear(),0,4); const monJan4=mondayOf(jan4); const mon=mondayOf(d);
+  const week=Math.floor(diffDays(monJan4,mon)/7)+1; return `${d.getFullYear()}-W${pad(week)}`;
+}
+function curMonthValue(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function renderReports(){
+  if(!curPid) return emptyBlock('请先创建项目');
+  const wv=curWeekValue(), mv=curMonthValue();
+  let html=`<div class="panel"><h2>周报</h2>
+    <div class="row">
+      <div class="field"><label>选择周</label><input id="r_week" type="week" value="${wv}" onchange="renderWeek()"></div>
+      <button class="btn" onclick="renderWeek()">生成周报</button>
+      <button class="btn ghost" onclick="exportWeek()">导出周报</button>
+    </div><div id="weekOut"></div></div>`;
+  html+=`<div class="panel"><h2>月报</h2>
+    <div class="row">
+      <div class="field"><label>选择月份</label><input id="r_month" type="month" value="${mv}" onchange="renderMonth()"></div>
+      <button class="btn" onclick="renderMonth()">生成月报</button>
+      <button class="btn ghost" onclick="exportMonth()">导出月报</button>
+    </div><div id="monthOut"></div></div>`;
+  setTimeout(()=>{ renderWeek(); renderMonth(); },0);
+  return html;
+}
+function weekRange(){
+  const v=$('#r_week')? $('#r_week').value:'';
+  if(!v) return null;
+  const m=v.match(/^(\d{4})-W(\d{1,2})$/); if(!m) return null;
+  const jan4=new Date(+m[1],0,4); const mon=mondayOf(jan4); const start=addDays(mon,(+m[2]-1)*7);
+  const end=addDays(start,6);
+  return {start:toISODate(start), end:toISODate(end)};
+}
+function monthRange(){
+  const v=$('#r_month')? $('#r_month').value:'';
+  if(!v) return null;
+  const m=v.match(/^(\d{4})-(\d{2})$/); if(!m) return null;
+  const start=`${m[1]}-${m[2]}-01`;
+  const end=new Date(+m[1], +m[2], 0); // last day
+  return {start, end:toISODate(end)};
+}
+function rangeDaily(from,to){ return S.daily.filter(d=>{const b=batch(d.batchId); return b&&b.projectId===curPid && d.date>=from && d.date<=to;}); }
+function aggregateByPerson(list){
+  const map={};
+  list.forEach(d=>{ const pid=d.personId; if(!map[pid]) map[pid]={completed:0,qualified:0,hours:0,value:0,days:new Set()};
+    map[pid].completed+=Number(d.completed)||0; map[pid].qualified+=qualifiedOf(d); map[pid].hours+=Number(d.hours)||0; map[pid].value+=valueOf(d); map[pid].days.add(d.date); });
+  return Object.entries(map).map(([pid,o])=>({personId:pid,...o,days:o.days.size,avgH: o.hours>0? round2(o.qualified/o.hours):0})).sort((a,b)=>b.value-a.value);
+}
+function qcInRange(from,to){ return S.qc.filter(q=>{const b=batch(q.batchId); return b&&b.projectId===curPid && q.date>=from && q.date<=to;}); }
+function qcAggRange(from,to){
+  const list=qcInRange(from,to); const map={};
+  list.forEach(q=>{ const pid=q.personId; if(!map[pid]) map[pid]={checked:0,bad:0,days:new Set()};
+    map[pid].checked+=Number(q.checked)||0; map[pid].bad+=qcBadOf(q); map[pid].days.add(q.date); });
+  return Object.entries(map).map(([pid,o])=>({personId:pid,days:o.days.size,checked:o.checked,bad:o.bad})).sort((a,b)=>b.checked-a.checked);
+}
+function qcRangeTableHTML(from,to){
+  const rows=qcAggRange(from,to);
+  if(!rows.length) return '<div class="empty">该时段无质检记录</div>';
+  let body=rows.map(a=>{const p=person(a.personId); const qrate=a.checked>0?(a.checked-a.bad)/a.checked*100:0; const g=goalRow(p,'qc',a.checked,a.days);
+    return `<tr><td>${esc(p?p.name:'未知')}</td><td class="num">${a.days}</td><td class="num">${a.checked}</td><td class="num down">${a.bad}</td>
+      <td class="num"><span class="badge ${qrate>=99?'ok':qrate>=90?'warn':'bad'}">${fmtNum(qrate,1)}%</span></td>
+      <td class="num">${g.goal>0? g.goal:'-'}</td><td class="num">${rateBadge(g.rate)}</td></tr>`;}).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>质检员</th><th class="num">工作天数</th><th class="num">质检条数</th><th class="num">不合格</th><th class="num">合格率</th><th class="num">日目标</th><th class="num">目标达成%</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function qcSheet(from,to){
+  const rows=qcAggRange(from,to);
+  const aoa=[['质检员','工作天数','质检条数','不合格','合格率%','日目标','目标达成%']];
+  rows.forEach(a=>{const p=person(a.personId); const qrate=a.checked>0? round2((a.checked-a.bad)/a.checked*100):''; const g=goalRow(p,'qc',a.checked,a.days);
+    aoa.push([(p||{}).name||'未知',a.days,a.checked,a.bad,qrate,g.goal>0? g.goal:'', g.rate!=null? round2(g.rate):'']);});
+  return aoa;
+}
+function renderWeek(){
+  const r=weekRange(); const out=$('#weekOut'); if(!r){ out.innerHTML='<div class="empty">请选择周</div>'; return; }
+  const list=rangeDaily(r.start,r.end);
+  const agg=aggregateByPerson(list);
+  const totals=list.reduce((t,d)=>{t.c+=Number(d.completed)||0;t.q+=qualifiedOf(d);t.h+=Number(d.hours)||0;t.v+=valueOf(d);return t;},{c:0,q:0,h:0,v:0});
+  let html=`<div class="hint">${r.start} ~ ${r.end}</div>`;
+  html+=personAggTable(agg,totals);
+  html+=`<div style="margin-top:16px"><div class="hint" style="font-weight:700;color:var(--text);margin-bottom:8px">质检统计（只计工作量，不计产值）</div>${qcRangeTableHTML(r.start,r.end)}</div>`;
+  out.innerHTML=html;
+}
+function renderMonth(){
+  const r=monthRange(); const out=$('#monthOut'); if(!r){ out.innerHTML='<div class="empty">请选择月份</div>'; return; }
+  const list=rangeDaily(r.start,r.end);
+  const agg=aggregateByPerson(list);
+  const totals=list.reduce((t,d)=>{t.c+=Number(d.completed)||0;t.q+=qualifiedOf(d);t.h+=Number(d.hours)||0;t.v+=valueOf(d);return t;},{c:0,q:0,h:0,v:0});
+  let html=`<div class="hint">${r.start} ~ ${r.end}</div>`;
+  html+=personAggTable(agg,totals);
+  html+=`<div style="margin-top:16px"><div class="hint" style="font-weight:700;color:var(--text);margin-bottom:8px">质检统计（只计工作量，不计产值）</div>${qcRangeTableHTML(r.start,r.end)}</div>`;
+  out.innerHTML=html;
+}
+function personAggTable(agg,totals){
+  if(!agg.length) return '<div class="empty">该时段暂无数据</div>';
+  let rows=agg.map(a=>{const p=person(a.personId); const g=goalRow(p,'eff',a.qualified,a.days);
+    return `<tr><td>${esc((p||{}).name||'未知')}</td>
+      <td class="num">${a.days}</td><td class="num">${a.completed}</td><td class="num up">${a.qualified}</td>
+      <td class="num">${g.goal>0? g.goal : '-'}</td><td class="num">${rateBadge(g.rate)}</td>
+      <td class="num">${fmtNum(a.hours,1)}</td><td class="num">${fmtNum(a.avgH,1)}</td><td class="num money">${money(a.value)}</td></tr>`;}).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>人员</th><th class="num">工作天数</th><th class="num">完成</th><th class="num">合格</th><th class="num">日目标</th><th class="num">目标达成%</th><th class="num">工时</th><th class="num">时产(条/h)</th><th class="num">产值</th></tr></thead><tbody>${rows}</tbody>
+  <tfoot class="tfoot"><tr><td>合计</td><td class="num"></td><td class="num">${totals.c}</td><td class="num">${totals.q}</td><td class="num"></td><td class="num"></td><td class="num">${fmtNum(totals.h,1)}</td><td class="num">${totals.h>0?fmtNum(totals.q/totals.h,1):''}</td><td class="num money">${money(totals.v)}</td></tr></tfoot></table></div>`;
+}
+
+/* ============================ 基础设置 ============================ */
+function savePersonGoal(pid,kind,v){
+  if(!canManage()) return;
+  const p=person(pid); if(!p) return; const n=(v===''||v==null)? null : Math.max(0,Number(v)||0);
+  if(kind==='q') p.qTarget=n; else p.dTarget=n;
+  save(); toast('已保存 '+p.name+(kind==='q'?' 质检日目标 = '+n:' 标注日目标 = '+n),'ok');
+}
+function goalSettingPanel(){
+  const ps=persons(); const mgr=canManage();
+  if(!ps.length) return '';
+  let h=`<div class="panel"><h2>🎯 每日产量目标设置 <span class="sub">标注/质检分开设，日目标×天数≈每人预期产量</span></h2>
+    <div class="hint" style="margin-bottom:10px">${mgr?'直接在数字框里改，输入后即自动保存：':'🔒 仅负责人可修改目标。请点右上角 👤 切换为「负责人」身份后再来设置。'}</div>
+    <div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>职位</th><th>团队</th><th class="num">标注日目标(条/天)</th><th class="num">质检日目标(条/天)</th></tr></thead><tbody>`;
+  h+=ps.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${roleBadges(p)}</td><td class="muted">${esc(p.team||'-')}</td>
+    <td class="num">${mgr? `<input type="number" min="0" value="${dGoal(p)||''}" style="width:90px" placeholder="未设" title="标注每日产量目标" onchange="savePersonGoal('${p.id}','d',this.value)">` : (dGoal(p)>0? dGoal(p) : '<span class="muted">未设</span>')}</td>
+    <td class="num">${mgr? `<input type="number" min="0" value="${qGoal(p)||''}" style="width:90px" placeholder="未设" title="质检每日产量目标" onchange="savePersonGoal('${p.id}','q',this.value)">` : (qGoal(p)>0? qGoal(p) : '<span class="muted">未设</span>')}</td></tr>`).join('')+
+    `</tbody></table></div>
+    <div class="hint" style="margin-top:8px">说明：<b>标注日目标</b>=每人每天应完成的合格条数；<b>质检日目标</b>=每人每天应质检的条数。达成率在「人效统计 / 质检管理」页顶部实时展示；未设目标的不参与达标考核。</div></div>`;
+  return h;
+}
+function renderSettings(){
+  const mgr=canManage();
+  const c=cfg();
+  let html=`<div class="panel"><h2>👤 身份与权限</h2>
+    <div class="row" style="align-items:center">
+      <button class="btn ghost" onclick="openIdentity()">👤 ${esc(identityLabel()||'未选身份')} — 点此选择/切换</button>
+      ${mePerson()? `<button class="btn ghost" onclick="exitIdentity()">退出(只读)</button>`:''}
+      ${mgr? `<button class="btn" onclick="setMgrPw()">${c.mgrPassword?'修改':'设置'}管理密码</button>`:''}
+      <span class="sp" style="flex:1"></span>
+      <span class="badge ${mgr?'ok':'warn'}">${mgr?'管理权限已生效':'当前无管理权限（项目/人员/批次只读）'}</span>
+    </div>
+    <div class="hint">权限规则：<b>负责人</b>可管理项目/批次/单价/质检比例/人员，并操作所有人记录（${c.mgrPassword?'已设管理密码，切换负责人需验证':'未设管理密码，建议立即设置'}）；<b>标注</b>只能录入/修改/删除自己的标注记录；<b>质检</b>只能录入自己的质检记录；未选身份=只读。</div>
+  </div>`;
+  html+=`<div class="two">
+    <div class="panel"><h2>项目 <span class="sub">单价、项目周期、默认质检比例</span></h2>
+      ${mgr? `
+      <div class="row">
+        <div class="field" style="flex:1"><label>项目名称</label><input id="np_name" placeholder="如 某客户AIGC标注"></div>
+        <div class="field"><label>默认单价(元/条)</label><input id="np_price" type="number" min="0" step="0.01" placeholder="0.50"></div>
+        <div class="field"><label>默认质检比例%</label><input id="np_qa" type="number" min="0" max="100" step="1" placeholder="100"></div>
+        <button class="btn" onclick="addProject()">＋ 新增</button>
+      </div>`:`<div class="hint" style="margin-bottom:12px">仅负责人可新增 / 编辑项目与单价。</div>`}
+      ${projectTable()}
+    </div>
+    <div class="panel"><h2>人员 <span class="sub">职位可多选：一人可既标注又质检</span></h2>
+      ${mgr? `
+      <div class="row">
+        <div class="field"><label>姓名</label><input id="nper_name" placeholder="张三"></div>
+        <div class="field"><label>团队/分组</label><input id="nper_team" placeholder="可选"></div>
+        <div class="field"><label>职位（可多选）</label><div style="display:flex;gap:12px;align-items:center;padding:11px 4px">
+          ${ROLES.map((r,i)=>`<label style="display:flex;align-items:center;gap:5px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="nper_r${i}" value="${r}"> ${r}</label>`).join('')}
+        </div></div>
+        <button class="btn" onclick="addPerson()">＋ 新增</button>
+      </div>`:`<div class="hint" style="margin-bottom:12px">仅负责人可管理人员与职位。</div>`}
+      ${personTable()}
+    </div>
+  </div>
+  ${goalSettingPanel()}
+  <div class="panel"><h2>数据 <span class="sub">备份与恢复</span></h2>
+    <div class="row">
+      <button class="btn ghost" onclick="exportBackup()">导出全部数据(JSON备份)</button>
+      ${mgr? `<button class="btn ghost" onclick="$('#restoreFile').click()">导入备份</button>
+      <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(this)">
+      <button class="btn ghost" onclick="loadDemo()">载入示例数据</button>
+      <button class="btn danger" onclick="clearAll()">清空所有数据</button>`:''}
+    </div>
+    <div class="hint">共享模式数据存在服务器 data/store.json；单机模式存在本浏览器。导入备份 / 清空 / 示例数据仅负责人可用，请谨慎。</div>
+  </div>`;
+  return html;
+}
+function setMgrPw(){
+  if(!canManage()) return toast('仅负责人可设置管理密码','bad');
+  const c=cfg();
+  showOverlay(`<h3>${c.mgrPassword?'修改':'设置'}管理密码</h3>
+    <div class="hint" style="margin-bottom:10px">设置后，任何人在顶部 👤 选择「负责人」身份时都需要输入该密码；密码不随浏览器，保存在共享数据中。</div>
+    ${c.mgrPassword? `<div class="field"><label>当前管理密码</label><input id="mgr_old" type="password"></div>`:''}
+    <div class="field" style="margin-top:10px"><label>新管理密码</label><input id="mgr_new" type="password" placeholder="${c.mgrPassword?'留空表示清除密码':'输入密码'}"></div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button><button class="btn" onclick="saveMgrPw()">保存</button></div>`);
+}
+function saveMgrPw(){
+  const c=cfg();
+  const oldEl=$('#mgr_old'); const newPw=$('#mgr_new').value;
+  if(c.mgrPassword && oldEl && oldEl.value!==c.mgrPassword) return toast('当前密码错误','bad');
+  setCfg({mgrPassword:newPw}); SYNC.mgrOk=!!newPw; save(); closeOverlay(); renderPage(); toast('管理密码已更新','ok');
+}
+function projectTable(){
+  if(!S.projects.length) return '<div class="empty">暂无项目</div>';
+  const mgr=canManage();
+  return `<div class="tbl-wrap"><table><thead><tr><th>名称</th><th class="num">单价</th><th class="num">质检比例</th><th>开始</th><th>结束</th><th></th></tr></thead><tbody>`+
+  S.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td class="num">${money(p.unitPrice||0)}</td><td class="num">${p.qaRate!=null?p.qaRate:100}%</td><td>${esc(p.startDate||'-')}</td><td>${esc(p.endDate||'进行中')}</td>
+    <td>${mgr? `<button class="btn link" onclick="editProject('${p.id}')">编辑</button><button class="btn link danger" onclick="delProject('${p.id}')">删除</button>`:''}</td></tr>`).join('')+
+  `</tbody></table></div>`;
+}
+function personTable(){
+  if(!S.persons.length) return '<div class="empty">暂无人员</div>';
+  const mgr=canManage();
+  return `<div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>职位</th><th>团队</th><th></th></tr></thead><tbody>`+
+  S.persons.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${roleBadges(p)}</td><td class="muted">${esc(p.team||'-')}</td>
+    <td>${mgr? `<button class="btn link" onclick="editPerson('${p.id}')">编辑</button><button class="btn link danger" onclick="delPerson('${p.id}')">删除</button>`:''}</td></tr>`).join('')+
+  `</tbody></table></div>`;
+}
+function addProject(){
+  if(!canManage()) return toast('仅负责人可新增项目','bad');
+  const name=$('#np_name').value.trim(); if(!name) return toast('请填写项目名称','bad');
+  const qa=$('#np_qa').value.trim();
+  S.projects.push({id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate:todayStr(),endDate:'',note:''});
+  save(); renderProjSel(); renderPage(); toast('项目已新增','ok');
+}
+function editProject(id){
+  const p=project(id); if(!p) return;
+  if(!canManage()) return toast('仅负责人可编辑项目','bad');
+  showOverlay(`<h3>编辑项目</h3>
+    <div class="field"><label>名称</label><input id="ep_name" value="${esc(p.name)}"></div>
+    <div class="field" style="margin-top:10px"><label>默认单价(元/条)</label><input id="ep_price" type="number" min="0" step="0.01" value="${p.unitPrice||0}"></div>
+    <div class="field" style="margin-top:10px"><label>默认质检比例% <span class="muted">新批次默认按此比例检</span></label><input id="ep_qa" type="number" min="0" max="100" value="${p.qaRate!=null?p.qaRate:100}"></div>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label>开始日期</label><input id="ep_start" type="date" value="${esc(p.startDate||'')}"></div>
+      <div class="field"><label>结束日期</label><input id="ep_end" type="date" value="${esc(p.endDate||'')}"></div>
+    </div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button><button class="btn" onclick="saveProjectEdit('${id}')">保存</button></div>`);
+}
+function saveProjectEdit(id){
+  const p=project(id); if(!p) return;
+  if(!canManage()) return toast('仅负责人可编辑项目','bad');
+  p.name=$('#ep_name').value.trim(); p.unitPrice=Number($('#ep_price').value)||0;
+  p.qaRate=Math.min(100,Math.max(0,Number($('#ep_qa').value)||100));
+  p.startDate=$('#ep_start').value; p.endDate=$('#ep_end').value;
+  save(); closeOverlay(); renderProjSel(); renderPage(); toast('已保存','ok');
+}
+function delProject(id){
+  if(!canManage()) return toast('仅负责人可删除项目','bad');
+  if(!confirm('删除项目及其批次？（人效/出勤记录会保留）')) return;
+  S.projects=S.projects.filter(p=>p.id!==id); S.batches=S.batches.filter(b=>b.projectId!==id);
+  if(curPid===id) curPid=S.projects.length?S.projects[0].id:null;
+  save(); renderProjSel(); renderPage();
+}
+function openProjectModal(){ if(!canManage()){ toast('仅负责人可新建项目，请切换身份','bad'); openIdentity(); return; } go('settings'); setTimeout(()=>{ const e=$('#np_name'); if(e) e.focus(); },50); }
+function addPerson(){
+  if(!canManage()) return toast('仅负责人可新增人员','bad');
+  const name=$('#nper_name').value.trim(); if(!name) return toast('请填写姓名','bad');
+  if(personByName(name)) return toast('该人员已存在','bad');
+  const roles=ROLES.filter((r,i)=> { const el=$('#nper_r'+i); return el && el.checked; });
+  S.persons.push({id:uid(),name,team:$('#nper_team').value.trim(),roles});
+  save(); renderPage(); toast('人员已新增','ok');
+}
+function roleChecks(roles){
+  return ROLES.map((r,i)=>{ const on=roles.includes(r);
+    return `<label style="display:flex;align-items:center;gap:5px;font-size:13.5px;cursor:pointer"><input type="checkbox" id="per_r${i}" value="${r}" ${on?'checked':''}> ${r}</label>`; }).join('');
+}
+function editPerson(id){
+  const p=person(id); if(!p) return;
+  if(!canManage()) return toast('仅负责人可编辑人员','bad');
+  const rs=rolesOf(p);
+  showOverlay(`<h3>编辑人员</h3>
+    <div class="field"><label>姓名</label><input id="eper_name" value="${esc(p.name)}"></div>
+    <div class="field" style="margin-top:10px"><label>团队</label><input id="eper_team" value="${esc(p.team||'')}"></div>
+    <div class="field" style="margin-top:10px"><label>职位（可多选，一人可既标注又质检）</label><div style="display:flex;gap:12px;align-items:center;padding:8px 2px">${roleChecks(rs)}</div></div>
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>标注日目标(条/天)</label><input id="eper_d" type="number" min="0" value="${dGoal(p)||''}" placeholder="如 300"></div>
+      <div class="field"><label>质检日目标(条/天)</label><input id="eper_q" type="number" min="0" value="${qGoal(p)||''}" placeholder="如 400"></div>
+    </div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button><button class="btn" onclick="savePersonEdit('${id}')">保存</button></div>`);
+}
+function savePersonEdit(id){
+  const p=person(id); if(!p) return;
+  if(!canManage()) return toast('仅负责人可编辑人员','bad');
+  p.name=$('#eper_name').value.trim(); p.team=$('#eper_team').value.trim();
+  p.roles=ROLES.filter((r,i)=> { const el=$('#per_r'+i); return el && el.checked; });
+  const d=$('#eper_d').value.trim(); p.dTarget = d===''? null : Math.max(0,Number(d)||0);
+  const q=$('#eper_q').value.trim(); p.qTarget = q===''? null : Math.max(0,Number(q)||0);
+  save(); closeOverlay(); renderPage(); toast('已保存','ok');
+}
+function delPerson(id){
+  if(!canManage()) return toast('仅负责人可删除人员','bad');
+  if(!confirm('删除该人员？（不影响历史记录）')) return;
+  S.persons=S.persons.filter(p=>p.id!==id); save(); renderPage();
+}
+
+/* ============================ 通用导出 ============================ */
+function excelSafe(v){ return v==null?'':v; }
+function makeSheets(sheets){
+  if(window.XLSX){
+    const wb=XLSX.utils.book_new();
+    sheets.forEach(s=>{ const ws=XLSX.utils.aoa_to_sheet(s.aoa); ws['!cols']=s.cols; XLSX.utils.book_append_sheet(wb,ws,s.name); });
+    XLSX.writeFile(wb, sheets.length===1? sheets[0].name+'.xlsx' : '标注项目管理报表.xlsx');
+  } else { downloadCSV((sheets[0].name||'export')+'.csv', sheets[0].aoa); }
+}
+function downloadCSV(filename,aoa){
+  const csv=aoa.map(r=>r.map(c=>{c=c==null?'':String(c); if(/[",\n\r]/.test(c)) c='"'+c.replace(/"/g,'""')+'"'; return c;}).join(',')).join('\r\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},300);
+}
+
+function exportBatchDetail(){
+  const bs=batchesOf(curPid||''); if(!bs.length) return toast('暂无批次','bad');
+  const aoa=[['批次号','总任务','已完成(合格)','剩余','进度%','单价(元)','截止日期','备注']];
+  bs.forEach(b=>{const s=batchStats(b.id); aoa.push([b.batchNo,s.total,s.done,s.remaining,round2(s.pct),unitPriceOf(b.id),b.deadline||'',b.note||'']);});
+  makeSheets([{name:'批次明细',aoa}]);
+}
+function exportDailyDetail(){
+  const list=applyDailyFilters(S.daily.filter(d=>{const b=batch(d.batchId); return b&&b.projectId===curPid;}));
+  if(!list.length) return toast('暂无记录','bad');
+  const aoa=[['日期','人员','团队','批次','完成条数','合格条数','返工','工时(小时)','时产(条/h)','单价(元)','产值(元)','备注']];
+  list.sort((a,b)=>a.date.localeCompare(b.date));
+  list.forEach(d=>{const b=batch(d.batchId); const p=person(d.personId);
+    aoa.push([d.date, p?p.name:'未知', p?p.team||'':'', b?b.batchNo:'-', d.completed, qualifiedOf(d), Number(d.completed)-qualifiedOf(d), d.hours, round2(hourlyOf(d)), unitPriceOf(d.batchId), round2(valueOf(d)), d.note||'']);});
+  makeSheets([{name:'人效明细',aoa}]);
+}
+function exportAttendanceDetail(){
+  const list=S.attendance.filter(a=>a.projectId===curPid).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!list.length) return toast('暂无出勤记录','bad');
+  const aoa=[['日期','人员','团队','状态','备注']];
+  list.forEach(a=>{const p=person(a.personId); aoa.push([a.date,p?p.name:'未知',p?p.team||'':'',a.status,a.note||'']);});
+  makeSheets([{name:'出勤明细',aoa}]);
+}
+function exportAttendanceSummary(){
+  const ps=persons(); if(!ps.length) return toast('暂无人员','bad');
+  const aoa=[['人员','团队','应出勤(天)','实际出勤(天)','缺勤(天)','出勤率%']];
+  ps.forEach(p=>{const a=personAttendance(curPid,p.id); aoa.push([p.name,p.team||'',a.total,a.present,a.absent,round2(a.rate)]);});
+  makeSheets([{name:'出勤率汇总',aoa}]);
+}
+function exportWeek(){
+  const r=weekRange(); if(!r) return toast('请选择周','bad');
+  const list=rangeDaily(r.start,r.end); const agg=aggregateByPerson(list);
+  const aoa=[['人员','工作天数','完成','合格','日目标','目标达成%','工时','时产(条/h)','产值(元)']];
+  agg.forEach(a=>{const p=person(a.personId); const g=goalRow(p,'eff',a.qualified,a.days);
+    aoa.push([(p||{}).name||'未知',a.days,a.completed,a.qualified,g.goal>0? g.goal:'',g.rate!=null? round2(g.rate):'',round2(a.hours),round2(a.avgH),round2(a.value)]);});
+  const tot=agg.reduce((t,a)=>({c:t.c+a.completed,q:t.q+a.qualified,h:t.h+a.hours,v:t.v+a.value}),{c:0,q:0,h:0,v:0});
+  aoa.push(['合计','',tot.c,tot.q,'','',round2(tot.h), tot.h>0?round2(tot.q/tot.h):'', round2(tot.v)]);
+  makeSheets([{name:`周报_${r.start}_${r.end}`,aoa},{name:'质检统计',aoa:qcSheet(r.start,r.end)}]);
+}
+function exportMonth(){
+  const r=monthRange(); if(!r) return toast('请选择月份','bad');
+  const list=rangeDaily(r.start,r.end); const agg=aggregateByPerson(list);
+  const aoa=[['人员','工作天数','完成','合格','日目标','目标达成%','工时','时产(条/h)','产值(元)']];
+  agg.forEach(a=>{const p=person(a.personId); const g=goalRow(p,'eff',a.qualified,a.days);
+    aoa.push([(p||{}).name||'未知',a.days,a.completed,a.qualified,g.goal>0? g.goal:'',g.rate!=null? round2(g.rate):'',round2(a.hours),round2(a.avgH),round2(a.value)]);});
+  const tot=agg.reduce((t,a)=>({c:t.c+a.completed,q:t.q+a.qualified,h:t.h+a.hours,v:t.v+a.value}),{c:0,q:0,h:0,v:0});
+  aoa.push(['合计','',tot.c,tot.q,'','',round2(tot.h), tot.h>0?round2(tot.q/tot.h):'', round2(tot.v)]);
+  makeSheets([{name:`月报_${r.start.slice(0,7)}`,aoa},{name:'质检统计',aoa:qcSheet(r.start,r.end)}]);
+}
+function exportBackup(){
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='标注管理备份_'+todayStr()+'.json'; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},300);
+}
+function importBackup(input){
+  if(!canManage()) return toast('仅负责人可导入备份','bad');
+  const f=input.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=e=>{ try{ S=Object.assign(defaultState(),JSON.parse(e.target.result)); save(); renderProjSel(); renderPage(); toast('备份已导入','ok'); }catch(err){ toast('文件格式错误','bad'); } }; r.readAsText(f,'utf-8'); input.value='';
+}
+function clearAll(){
+  if(!canManage()) return toast('仅负责人可清空数据','bad');
+  if(!confirm('确定清空所有数据？此操作不可恢复（建议先导出备份）')) return;
+  S=defaultState(); save(); curPid=null; renderProjSel(); renderPage();
+}
+function loadDemo(){
+  if(!canManage()) return toast('仅负责人可载入示例数据','bad');
+  if(!confirm('载入示例数据将覆盖当前全部数据，继续？')) return;
+  const p1=uid(),p2=uid(); const pe1=uid(),pe2=uid(),pe3=uid();
+  const b1=uid(),b2=uid(),b3=uid();
+  const start='2026-08-31';
+  S=defaultState();
+  S.projects=[
+    {id:p1,name:'某客户AIGC标注项目',unitPrice:0.5,qaRate:100,startDate:start,endDate:'2026-09-30',note:''},
+    {id:p2,name:'第二期项目',unitPrice:0.6,qaRate:50,startDate:'2026-09-01',endDate:'',note:''},
+  ];
+  S.batches=[
+    {id:b1,projectId:p1,batchNo:'A-2026-001',totalTasks:3000,unitPrice:0.5,qaRate:100,deadline:'2026-09-20',note:'图文对'},
+    {id:b2,projectId:p1,batchNo:'A-2026-002',totalTasks:2000,unitPrice:0.55,qaRate:null,deadline:'2026-09-28',note:'对话'},
+    {id:b3,projectId:p2,batchNo:'B-2026-001',totalTasks:1500,unitPrice:null,qaRate:null,deadline:'',note:''},
+  ];
+  S.persons=[
+    {id:pe1,name:'张三',team:'一组',roles:['标注','负责人']},
+    {id:pe2,name:'李四',team:'一组',roles:['标注','质检']},
+    {id:pe3,name:'王五',team:'二组',roles:['标注']},
+  ];
+  S.daily=[];
+  const ds=[['2026-09-01',pe1,b1,210,200,8],['2026-09-01',pe2,b1,180,175,8],['2026-09-01',pe3,b1,150,148,8],
+    ['2026-09-02',pe1,b1,220,215,8],['2026-09-02',pe2,b1,190,190,8],['2026-09-02',pe3,b2,120,120,8],
+    ['2026-09-03',pe1,b1,230,228,8],['2026-09-03',pe2,b2,160,158,8],['2026-09-03',pe3,b2,140,135,8]];
+  ds.forEach(d=>S.daily.push({id:uid(),projectId:p1,personId:d[1],batchId:d[2],date:d[0],completed:d[3],qualified:d[4],hours:d[5],note:'',createdAt:d[0]}));
+  S.qc=[
+    {id:uid(),projectId:p1,personId:pe2,batchId:b1,date:'2026-09-01',checked:180,bad:3,note:'首日抽检',createdAt:'2026-09-01'},
+    {id:uid(),projectId:p1,personId:pe2,batchId:b1,date:'2026-09-02',checked:200,bad:2,note:'',createdAt:'2026-09-02'},
+    {id:uid(),projectId:p1,personId:pe1,batchId:b1,date:'2026-09-03',checked:160,bad:1,note:'负责人复核',createdAt:'2026-09-03'},
+  ];
+  curPid=p1; save(); renderProjSel(); renderPage(); toast('示例数据已载入','ok');
+}
+
+/* ============================ 日报导入 ============================ */
+let pendingImport=null;
+function downloadDailyTemplate(){
+  const aoa=[['日期','人员','批次号','完成条数','合格条数','工时(小时)','备注'],
+    ['2026-09-01','张三','A-2026-001',210,200,8,'示例行，导入前请删除']];
+  makeSheets([{name:'日报模板',aoa,cols:[{wch:12},{wch:10},{wch:14},{wch:10},{wch:10},{wch:12},{wch:16}]}]);
+}
+function openImportModal(){
+  showOverlay(`<h3>导入日报 <span class="muted" style="font-weight:400;font-size:13px">读取你的 Excel/CSV</span></h3>
+    <div class="hint" style="margin-bottom:12px">支持 .xlsx/.xls/.csv。先选择文件，再映射列，预览无误后导入。日期列如为 Excel 日期会自动转换。</div>
+    <div class="row"><input type="file" id="impFile" accept=".xlsx,.xls,.csv" onchange="onImportFile(this)" style="flex:1"></div>
+    <div id="impMap" style="display:none">
+      <div class="two">
+        ${['日期','人员','批次号','完成条数','合格条数','工时(小时)','备注'].map((f,i)=>`
+          <div class="field"><label>${f} ← 源列</label><select id="map_${i}"></select></div>`).join('')}
+      </div>
+      <div class="hint" style="margin-top:10px">「合格条数」「备注」可不映射；合格条数留空时默认=完成条数。</div>
+      <label style="margin-top:10px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="impAutoPerson" checked> 自动创建未知人员</label>
+      <div id="impPreview" style="margin-top:12px"></div>
+      <div class="actions">
+        <button class="btn ghost" onclick="closeOverlay()">取消</button>
+        <button class="btn" onclick="doImport()">导入</button>
+      </div>
+    </div>`);
+}
+function onImportFile(input){
+  const f=input.files[0]; if(!f) return;
+  readWorkbook(f,aoa=>{
+    pendingImport={fileName:f.name, aoa, header:aoa[0]||[]};
+    const mapBox=$('#impMap'); mapBox.style.display='block';
+    const hd=pendingImport.header.map(c=>String(c).trim());
+    const autoMap={'日期':['日期','date','时间','day'],'人员':['人员','姓名','name','员工'],'批次号':['批次','批次号','batch','批号'],'完成条数':['完成','完成条数','提交','数量','条数'],'合格条数':['合格','合格条数','通过','有效'],'工时(小时)':['工时','时长','hours','小时'],'备注':['备注','note','说明']};
+    const labels=['日期','人员','批次号','完成条数','合格条数','工时(小时)','备注'];
+    labels.forEach((l,i)=>{
+      const sel=$('#map_'+i); const kw=autoMap[l]||[]; let def=-1;
+      hd.forEach((h,hi)=>{ if(kw.some(k=>h.toLowerCase().includes(k.toLowerCase()))&&def<0) def=hi; });
+      sel.innerHTML='<option value="">不映射</option>'+hd.map((h,hi)=>`<option value="${hi}" ${hi===def?'selected':''}>列${hi+1}: ${esc(h||'')}</option>`).join('');
+    });
+    renderImportPreview();
+  });
+}
+function readWorkbook(file,cb){
+  if(window.XLSX && /\.(xlsx|xls)$/i.test(file.name)){
+    const r=new FileReader();
+    r.onload=e=>{ try{ const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true}); cb(aoa); }catch(err){ toast('读取失败：'+err.message,'bad'); } };
+    r.readAsArrayBuffer(file);
+  } else {
+    const r=new FileReader();
+    r.onload=e=>cb(parseCSV(e.target.result)); r.readAsText(file,'utf-8');
+  }
+}
+function parseCSV(text){
+  const rows=[]; let row=[],cur='',q=false;
+  for(let i=0;i<text.length;i++){ const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===','){ row.push(cur); cur=''; }
+    else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&text[i+1]==='\n') i++; row.push(cur); cur=''; if(row.some(c=>c!=='')) rows.push(row); row=[]; }
+    else cur+=ch;
+  }
+  if(cur!==''||row.length){ row.push(cur); if(row.some(c=>c!=='')) rows.push(row); }
+  return rows;
+}
+function cellToDate(v){
+  if(v instanceof Date) return toISODate(v);
+  if(typeof v==='number' && window.XLSX){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
+  return String(v==null?'':v).trim();
+}
+function normDate(s){
+  if(!s) return ''; s=String(s).trim();
+  if(window.XLSX && /^[0-9]{4,5}(\.\d+)?$/.test(s)){ const d=XLSX.SSF.parse_date_code(+s); if(d) return `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
+  const m=s.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/); if(m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  return s;
+}
+function num(v){ const n=parseFloat(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?0:n; }
+function renderImportPreview(){
+  if(!pendingImport) return;
+  const map=[0,1,2,3,4,5,6].map(i=>$('#map_'+i).value);
+  const data=pendingImport.aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!==''));
+  let html='<div class="tbl-wrap"><table><thead><tr><th>日期</th><th>人员</th><th>批次</th><th>完成</th><th>合格</th><th>工时</th></tr></thead><tbody>';
+  data.slice(0,8).forEach(r=>{
+    const g=i=>{const idx=map[i]; return idx===''?'':String(r[idx]??'').trim();};
+    html+=`<tr><td>${esc(normDate(g(0))||'-')}</td><td>${esc(g(1)||'-')}</td><td>${esc(g(2)||'-')}</td><td class="num">${esc(g(3))}</td><td class="num">${esc(g(4)||g(3))}</td><td class="num">${esc(g(5))}</td></tr>`;
+  });
+  html+=`</tbody></table></div><div class="hint" style="margin-top:6px">共 ${data.length} 行数据（预览前 8 行）</div>`;
+  $('#impPreview').innerHTML=html;
+  ['map_0','map_1','map_2','map_3','map_4','map_5','map_6'].forEach(id=>{ const el=$('#'+id); el.onchange=renderImportPreview; });
+}
+function doImport(){
+  if(!pendingImport) return;
+  const map=[0,1,2,3,4,5,6].map(i=>$('#map_'+i).value);
+  if(map[0]===''||map[1]===''||map[2]===''||map[3]==='') return toast('日期/人员/批次号/完成条数 为必填映射','bad');
+  const autoPerson=$('#impAutoPerson').checked;
+  const data=pendingImport.aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!==''));
+  let ok=0,skipNoBatch=0,skipBad=0; const unknownBatches=new Set();
+  data.forEach(r=>{
+    const g=i=>{const idx=map[i]; return idx===''?'':String(r[idx]??'').trim();};
+    const date=normDate(g(0)); const personName=g(1); const batchNo=g(2);
+    const completed=num(g(3)); const qualifiedRaw=g(4); const hours=num(g(5));
+    if(!date||!personName||!batchNo||completed<0){ skipBad++; return; }
+    let b=batchByNo(curPid,batchNo);
+    if(!b){ unknownBatches.add(batchNo); skipNoBatch++; return; }
+    let per=personByName(personName);
+    if(!per){ if(!autoPerson){ skipBad++; return; } per={id:uid(),name:personName,team:'',roles:['标注']}; S.persons.push(per); }
+    const qualified=qualifiedRaw===''? completed : num(qualifiedRaw);
+    S.daily.push({id:uid(),projectId:curPid,personId:per.id,batchId:b.id,date,completed,qualified,hours,note:g(6),createdAt:new Date().toISOString()});
+    ok++;
+  });
+  save(); closeOverlay();
+  let msg=`导入完成：成功 ${ok} 条`;
+  if(skipNoBatch) msg+=`；${skipNoBatch} 条因批次号不存在被跳过（${[...unknownBatches].slice(0,5).join('、')}${unknownBatches.size>5?'…':''}）`;
+  if(skipBad) msg+=`；${skipBad} 条因数据不完整被跳过`;
+  toast(msg, skipNoBatch||skipBad?'':'ok');
+  go('efficiency');
+}
+
+/* ============================ 启动 ============================ */
+function emptyBlock(t){ return `<div class="panel"><div class="empty">${t}</div></div>`; }
+(async function boot(){
+  await initSync();
+  renderProjSel();
+  renderNav();
+  renderPage();
+  updateSyncUI();
+  if(SYNC.mode==='server'){ setInterval(pollSync, 4000); }
+})();
+</script>
+
+
+</body></html>
