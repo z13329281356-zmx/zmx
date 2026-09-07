@@ -63,10 +63,22 @@ function loadAuth() {
 
 let authConfig = loadAuth();
 
+function ensureOwner() {
+  if (!authConfig || authConfig.ownerPersonId) return;
+  const owner = store.data.persons.find((person) => String(person?.name || '').trim().toLowerCase() === 'zmx')
+    || store.data.persons.find((person) => {
+      const ids = Array.isArray(person?.projectIds) ? person.projectIds : [];
+      return ids.some((projectId) => projectRoles(person, projectId).includes('负责人'));
+    });
+  if (!owner) return;
+  authConfig.ownerPersonId = String(owner.id);
+  persistAuth();
+}
+
 function passwordRecord(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return { salt, hash, updatedAt: Date.now() };
+  return { salt, hash, updatedAt: Date.now(), ownerPersonId: authConfig?.ownerPersonId || '' };
 }
 
 function passwordMatches(password) {
@@ -103,6 +115,11 @@ function isAdmin(req) {
   return true;
 }
 
+function isOwner(req) {
+  if (!authConfig?.ownerPersonId) return isLoopback(req);
+  return String(req.headers['x-aigc-person'] || '') === String(authConfig.ownerPersonId);
+}
+
 function requestActor(req) {
   const personId = String(req.headers['x-aigc-person'] || '');
   const projectId = String(req.headers['x-aigc-project'] || '');
@@ -124,6 +141,8 @@ function isManager(req) {
   if (projectIds.some((projectId) => projectRoles(person, projectId).includes('负责人'))) return true;
   return Array.isArray(person.roles) && person.roles.includes('负责人');
 }
+
+ensureOwner();
 
 function startAdminSession(res) {
   const token = crypto.randomBytes(32).toString('hex');
@@ -322,7 +341,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/auth/status' && req.method === 'GET') {
-    json(res, 200, { ok: true, initialized: Boolean(authConfig), admin: isAdmin(req), setupAllowed: !authConfig && isLoopback(req) });
+    json(res, 200, { ok: true, initialized: Boolean(authConfig), admin: isAdmin(req), ownerPersonId: authConfig?.ownerPersonId || '', setupAllowed: !authConfig && isLoopback(req) });
     return;
   }
   if (url.pathname === '/api/auth/setup' && req.method === 'POST') {
@@ -343,6 +362,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/auth/login' && req.method === 'POST') {
     try {
       const payload = await readJsonBody(req);
+      if (!isOwner(req)) return json(res, 403, { ok: false, code: 'OWNER_REQUIRED', error: '只有总管理员可以登录管理员账号' });
       if (!passwordMatches(String(payload.password || ''))) return json(res, 401, { ok: false, code: 'BAD_PASSWORD', error: '管理员密码错误' });
       startAdminSession(res);
       return json(res, 200, { ok: true, initialized: true, admin: true });
@@ -355,7 +375,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, admin: false });
   }
   if (url.pathname === '/api/auth/password' && req.method === 'POST') {
-    if (!isAdmin(req)) return json(res, 403, { ok: false, code: 'ADMIN_REQUIRED' });
+    if (!isAdmin(req) || !isOwner(req)) return json(res, 403, { ok: false, code: 'OWNER_REQUIRED', error: '只有总管理员可以修改管理员密码' });
     try {
       const payload = await readJsonBody(req);
       const currentPassword = String(payload.currentPassword || '');
@@ -385,6 +405,7 @@ const server = http.createServer(async (req, res) => {
       if (result.conflicts.length) {
         return json(res, 409, { ok: false, code: 'CONFLICT', conflicts: result.conflicts, rev: store.rev, data: store.data });
       }
+      ensureOwner();
       json(res, 200, { ok: true, rev: store.rev, data: store.data });
     } catch (error) {
       json(res, 400, { ok: false, error: error.message });

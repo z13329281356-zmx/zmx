@@ -170,7 +170,7 @@ function defaultState(){ return { projects:[], batches:[], persons:[], daily:[],
 function clone(x){ return JSON.parse(JSON.stringify(x)); }
 /* 同步层：正式使用 server 团队共享；offline 时禁止写入，避免产生分叉数据 */
 let SYNC={ mode:'connecting', base:null, rev:0, online:false, pending:false, busy:false, again:false };
-let AUTH={ initialized:false, admin:false, setupAllowed:false };
+let AUTH={ initialized:false, admin:false, ownerPersonId:'', setupAllowed:false };
 let S = defaultState();
 const CUR_PROJECT_KEY='aigc_current_project_v1';
 let curPid=(function(){ try{return localStorage.getItem(CUR_PROJECT_KEY)||null;}catch(e){return null;} })();
@@ -273,11 +273,11 @@ async function initSync(){
   SYNC.mode='offline'; SYNC.online=false; setState(defaultState()); stampBase(); return false;
 }
 async function refreshAuth(){
-  if(SYNC.mode!=='server'){ AUTH={initialized:false,admin:false,setupAllowed:false}; return AUTH; }
+  if(SYNC.mode!=='server'){ AUTH={initialized:false,admin:false,ownerPersonId:'',setupAllowed:false}; return AUTH; }
   try{
     const r=await fetch('/api/auth/status?t='+Date.now()); const res=await r.json();
-    if(res&&res.ok) AUTH={initialized:!!res.initialized,admin:!!res.admin,setupAllowed:!!res.setupAllowed};
-  }catch(e){ AUTH={initialized:false,admin:false,setupAllowed:false}; }
+    if(res&&res.ok) AUTH={initialized:!!res.initialized,admin:!!res.admin,ownerPersonId:String(res.ownerPersonId||''),setupAllowed:!!res.setupAllowed};
+  }catch(e){ AUTH={initialized:false,admin:false,ownerPersonId:'',setupAllowed:false}; }
   return AUTH;
 }
 function updateSyncUI(){
@@ -365,6 +365,7 @@ function saveMe(){ try{ localStorage.setItem(ME_KEY, JSON.stringify(ME)); }catch
 function mePerson(){ return ME&&ME.id ? S.persons.find(p=>p.id===ME.id)||null : null; }
 function bootstrapMode(){ return S.persons.length===0; }      // 还没建人员=初始化期，放行
 function isManager(){ const p=mePerson(); return !!(p&&projectIdsOf(p).some(pid=>rolesOf(p,pid).includes('负责人'))); }
+function isOwner(){ return !!(ME&&ME.id&&AUTH.ownerPersonId&&ME.id===AUTH.ownerPersonId); }
 function hasAnyManager(){ return S.persons.some(p=>rolesOf(p).includes('负责人')); }
 function canManage(){
   return SYNC.mode==='server'&&(AUTH.admin||isManager());
@@ -376,8 +377,8 @@ function canTouchDaily(rec){ return canManage() || (canRecordDaily() && rec.pers
 function canTouchQc(rec){ return canManage() || (canRecordQc() && rec.personId===(mePerson()||{}).id); }
 function identityLabel(){
   const p=mePerson();
-  if(!p) return AUTH.admin?'管理员 · 可配置':(bootstrapMode()?'未选身份':'未选身份 · 只读');
-  return `${p.name} · ${rolesOf(p).join('/')||'成员'}${AUTH.admin?' · 管理员':(isManager()?' · 可管理':'')}`;
+  if(!p) return bootstrapMode()?'未选身份':'未选身份 · 只读';
+  return `${p.name} · ${rolesOf(p).join('/')||'成员'}${isOwner()?' · 总管理员':(isManager()?' · 负责人管理':'')}`;
 }
 
 /* ---------- 质检 ---------- */
@@ -503,8 +504,10 @@ function openIdentity(){
       <button class="btn ghost" onclick="closeOverlay()">取消</button>
       <button class="btn" onclick="enterIdentity()">进入</button>
     </div>
-    ${AUTH.admin?`<div class="panel" style="margin-top:14px"><div class="row"><span class="badge ok">管理员已登录</span><button class="btn ghost" onclick="logoutAdmin()">退出管理员</button></div></div>`:
-      AUTH.initialized?`<div class="panel" style="margin-top:14px"><div class="field"><label>管理员密码</label><input id="admin_pw" type="password" placeholder="只有获得密码的人才能管理权限" onkeydown="if(event.key==='Enter')loginAdmin()"></div><div class="actions"><button class="btn" onclick="loginAdmin()">管理员登录</button></div></div>`:
+    ${AUTH.admin&&isOwner()?`<div class="panel" style="margin-top:14px"><div class="row"><span class="badge ok">总管理员已登录</span><button class="btn ghost" onclick="logoutAdmin()">退出管理员</button></div></div>`:
+      AUTH.initialized&&isOwner()?`<div class="panel" style="margin-top:14px"><div class="field"><label>总管理员密码</label><input id="admin_pw" type="password" placeholder="仅 zmx 总管理员可登录" onkeydown="if(event.key==='Enter')loginAdmin()"></div><div class="actions"><button class="btn" onclick="loginAdmin()">总管理员登录</button></div></div>`:
+      isManager()?`<div class="hint" style="margin-top:14px">你当前是负责人，可以管理全部业务；管理员密码仅总管理员 zmx 可以修改。</div>`:
+      AUTH.initialized?`<div class="hint" style="margin-top:14px">当前是普通成员身份；管理员账号仅总管理员 zmx 可以登录。</div>`:
       `<div class="hint" style="margin-top:14px">管理员尚未初始化。请在服务器电脑打开 http://127.0.0.1:8088/ 完成首次设置。</div>`}`);
 }
 function enterIdentity(){
@@ -531,8 +534,9 @@ async function setupAdmin(){
   AUTH.initialized=true; AUTH.admin=true; AUTH.setupAllowed=false; closeOverlay(); renderPage(); toast('管理员已创建，只有持有密码的人可以管理权限','ok');
 }
 async function loginAdmin(){
+  if(!isOwner()) return toast('只有总管理员 zmx 可以登录管理员账号','bad');
   const el=$('#admin_pw'); const password=el?el.value:'';
-  const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}); const res=await r.json();
+  const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json','X-AIGC-Person':ME.id},body:JSON.stringify({password})}); const res=await r.json();
   if(!res.ok){ toast(res.error||'管理员登录失败','bad'); if(el){el.focus();el.select();} return; }
   AUTH.initialized=true; AUTH.admin=true; closeOverlay(); renderPage(); toast('管理员权限已启用','ok');
 }
@@ -1218,7 +1222,7 @@ function goalSettingPanel(){
 }
 function renderSettings(){
   const mgr=canManage();
-  const root=AUTH.admin;
+  const root=AUTH.admin&&isOwner();
   let html=`<div class="panel"><h2>👤 身份与权限</h2>
     <div class="row" style="align-items:center">
       <button class="btn ghost" onclick="openIdentity()">👤 ${esc(identityLabel()||'未选身份')} — 点此选择/切换</button>
@@ -1273,7 +1277,7 @@ function renderSettings(){
   return html;
 }
 function setMgrPw(){
-  if(!AUTH.admin) return toast('请先登录管理员','bad');
+  if(!AUTH.admin||!isOwner()) return toast('只有总管理员 zmx 可以修改密码','bad');
   showOverlay(`<h3>修改管理员密码</h3>
     <div class="hint" style="margin-bottom:10px">密码只保存在服务器电脑，不会发送给其他用户。修改后其他管理员会话将退出。</div>
     <div class="field"><label>当前管理员密码</label><input id="mgr_old" type="password" autocomplete="current-password"></div>
@@ -1285,7 +1289,7 @@ async function saveMgrPw(){
   const currentPassword=$('#mgr_old').value; const newPassword=$('#mgr_new').value;
   if(newPassword.length<6) return toast('新密码至少需要 6 位','bad');
   if(newPassword!==$('#mgr_new2').value) return toast('两次输入的新密码不一致','bad');
-  const r=await fetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})}); const res=await r.json();
+  const r=await fetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json','X-AIGC-Person':ME.id},body:JSON.stringify({currentPassword,newPassword})}); const res=await r.json();
   if(!res.ok) return toast(res.error||'密码修改失败','bad');
   AUTH.admin=true; closeOverlay(); renderPage(); toast('管理员密码已更新','ok');
 }
