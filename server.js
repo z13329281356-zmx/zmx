@@ -117,65 +117,12 @@ function projectRoles(person, projectId) {
   return [];
 }
 
-function isProjectManager(req) {
-  const { person, projectId } = requestActor(req);
-  return Boolean(person && projectId && projectRoles(person, projectId).includes('负责人'));
-}
-
-function withoutProject(value, projectId) {
-  const copy = { ...(value || {}) };
-  delete copy[projectId];
-  return copy;
-}
-
-function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function managerCanChange(payload, projectId) {
-  const changed = changedCollections(payload);
-  if (changed.includes('settings')) return false;
-
-  for (const name of changed) {
-    const updates = payload.upd?.[name] || {};
-    const deletions = payload.del?.[name] || {};
-    if (name === 'projects') {
-      if (Object.keys(deletions).length) return false;
-      for (const [id] of Object.entries(updates)) {
-        if (id !== projectId || !store.data.projects.some((item) => String(item?.id) === id)) return false;
-      }
-    } else if (name === 'batches') {
-      for (const [id, candidate] of Object.entries(updates)) {
-        const current = store.data.batches.find((item) => String(item?.id) === id);
-        if (current && String(current.projectId || '') !== projectId) return false;
-        if (String(candidate?.projectId || current?.projectId || '') !== projectId) return false;
-      }
-      for (const id of Object.keys(deletions)) {
-        const current = store.data.batches.find((item) => String(item?.id) === id);
-        if (!current || String(current.projectId || '') !== projectId) return false;
-      }
-    } else if (name === 'persons') {
-      if (Object.keys(deletions).length) return false;
-      for (const [id, candidate] of Object.entries(updates)) {
-        const current = store.data.persons.find((item) => String(item?.id) === id);
-        const nextIds = Array.isArray(candidate?.projectIds) ? candidate.projectIds : [];
-        if (!current) {
-          if (nextIds.length !== 1 || nextIds[0] !== projectId) return false;
-          if (Object.keys(withoutProject(candidate?.projectRoles, projectId)).length) return false;
-          if (Object.keys(withoutProject(candidate?.projectTargets, projectId)).length) return false;
-          if (Object.keys(withoutProject(candidate?.projectJoinedAt, projectId)).length) return false;
-          continue;
-        }
-        const oldOtherIds = (current.projectIds || []).filter((idValue) => idValue !== projectId).sort();
-        const newOtherIds = nextIds.filter((idValue) => idValue !== projectId).sort();
-        if (!sameJson(oldOtherIds, newOtherIds)) return false;
-        if (!sameJson(withoutProject(current.projectRoles, projectId), withoutProject(candidate.projectRoles, projectId))) return false;
-        if (!sameJson(withoutProject(current.projectTargets, projectId), withoutProject(candidate.projectTargets, projectId))) return false;
-        if (!sameJson(withoutProject(current.projectJoinedAt, projectId), withoutProject(candidate.projectJoinedAt, projectId))) return false;
-      }
-    }
-  }
-  return true;
+function isManager(req) {
+  const { person } = requestActor(req);
+  if (!person) return false;
+  const projectIds = Array.isArray(person.projectIds) ? person.projectIds : [];
+  if (projectIds.some((projectId) => projectRoles(person, projectId).includes('负责人'))) return true;
+  return Array.isArray(person.roles) && person.roles.includes('负责人');
 }
 
 function startAdminSession(res) {
@@ -430,8 +377,7 @@ const server = http.createServer(async (req, res) => {
       if (!authConfig) return json(res, 403, { ok: false, code: 'SETUP_REQUIRED', rev: store.rev, data: store.data });
       const collections = changedCollections(payload);
       const protectedChange = collections.some((name) => ADMIN_COLLECTIONS.has(name));
-      const { projectId } = requestActor(req);
-      const managerAllowed = protectedChange && isProjectManager(req) && managerCanChange(payload, projectId);
+      const managerAllowed = protectedChange && isManager(req);
       if (protectedChange && !isAdmin(req) && !managerAllowed) {
         return json(res, 403, { ok: false, code: 'MANAGER_REQUIRED', rev: store.rev, data: store.data });
       }
