@@ -314,7 +314,7 @@ function batchesOf(pid){ return S.batches.filter(b=>b.projectId===pid); }
 function projectIdsOf(p){
   if(Array.isArray(p&&p.projectIds)) return p.projectIds;
   if(p&&typeof p.projectIds==='string'&&p.projectIds) return [p.projectIds];
-  return S.projects.map(project=>project.id); // 兼容旧数据：原人员默认属于已有项目
+  return []; // 旧人员必须由管理员明确加入项目，避免自动混入所有项目
 }
 function personInProject(p,pid=curPid){ return !!pid && projectIdsOf(p).includes(pid); }
 function persons(pid=curPid){ return pid?S.persons.filter(p=>personInProject(p,pid)):[]; }
@@ -322,19 +322,16 @@ function batchByNo(pid,no){ return S.batches.find(b=>b.projectId===pid && String
 function personByName(name){ const n=String(name||'').trim(); return S.persons.find(p=>p.name===n); }
 function ensureProjectProfile(p,pid=curPid){
   if(!p) return;
+  const legacyRoles=Array.isArray(p.roles)?p.roles.slice():[];
+  const legacyTarget={d:p.dTarget??null,q:p.qTarget??null};
   if(typeof p.projectIds==='string') p.projectIds=p.projectIds?[p.projectIds]:[];
-  if(!Array.isArray(p.projectIds)){
-    const legacyRoles=Array.isArray(p.roles)?p.roles.slice():[];
-    p.projectIds=S.projects.map(project=>project.id);
-    p.projectRoles=Object.fromEntries(p.projectIds.map(id=>[id,legacyRoles.slice()]));
-    p.projectTargets=Object.fromEntries(p.projectIds.map(id=>[id,{d:p.dTarget??null,q:p.qTarget??null}]));
-  }
+  if(!Array.isArray(p.projectIds)) p.projectIds=[];
+  if(!p.projectRoles||typeof p.projectRoles!=='object') p.projectRoles={};
+  if(!p.projectTargets||typeof p.projectTargets!=='object') p.projectTargets={};
   if(!pid) return;
   if(!p.projectIds.includes(pid)) p.projectIds.push(pid);
-  if(!p.projectRoles||typeof p.projectRoles!=='object') p.projectRoles={};
-  if(!Array.isArray(p.projectRoles[pid])) p.projectRoles[pid]=[];
-  if(!p.projectTargets||typeof p.projectTargets!=='object') p.projectTargets={};
-  if(!p.projectTargets[pid]) p.projectTargets[pid]={d:null,q:null};
+  if(!Array.isArray(p.projectRoles[pid])) p.projectRoles[pid]=legacyRoles.slice();
+  if(!p.projectTargets[pid]) p.projectTargets[pid]={...legacyTarget};
 }
 
 function unitPriceOf(bid){ const b=batch(bid); if(b && b.unitPrice!==null && b.unitPrice!==undefined && String(b.unitPrice).trim()!=='') return Number(b.unitPrice)||0; const pid=b?b.projectId:curPid; const p=project(pid); return (p?Number(p.unitPrice):0)||0; }
@@ -348,9 +345,9 @@ function batchStats(bid){ const b=batch(bid)||{}; const total=Number(b.totalTask
 /* ---------- 人员职位 ---------- */
 const ROLES=['负责人','标注','质检'];
 function rolesOf(p,pid=curPid){
-  if(!p) return [];
+  if(!p||!personInProject(p,pid)) return [];
   if(p.projectRoles&&Array.isArray(p.projectRoles[pid])) return p.projectRoles[pid].slice();
-  return (!Array.isArray(p.projectIds)&&Array.isArray(p.roles))?p.roles.slice():[];
+  return Array.isArray(p.roles)?p.roles.slice():[];
 }
 function hasRole(p,r,pid=curPid){ return rolesOf(p,pid).includes(r); }
 function roleBadges(p,pid=curPid){ const r=rolesOf(p,pid);
@@ -1215,17 +1212,19 @@ function renderSettings(){
     </div>
     <div class="panel"><h2>人员 <span class="sub">当前项目：${esc((project(curPid)||{}).name||'未选择')}；职位按项目分别设置</span></h2>
       ${mgr&&curPid? `
+      <div class="hint" style="margin-bottom:10px">这里只管理当前项目的成员。输入新姓名可创建人员；输入已有姓名可把该人员加入当前项目。</div>
       <div class="row">
-        <div class="field"><label>姓名</label><input id="nper_name" placeholder="张三"></div>
+        <div class="field"><label>姓名（新人员或已有人员）</label><input id="nper_name" list="existing_person_names" placeholder="张三"><datalist id="existing_person_names">${S.persons.filter(p=>!personInProject(p)).map(p=>`<option value="${esc(p.name)}"></option>`).join('')}</datalist></div>
         <div class="field"><label>团队/分组</label><input id="nper_team" placeholder="可选"></div>
         <div class="field"><label>职位（可多选）</label><div style="display:flex;gap:12px;align-items:center;padding:11px 4px">
           ${ROLES.map((r,i)=>`<label style="display:flex;align-items:center;gap:5px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="nper_r${i}" value="${r}"> ${r}</label>`).join('')}
         </div></div>
-        <button class="btn" onclick="addPerson()">＋ 新增</button>
+        <button class="btn" onclick="addPerson()">＋ 加入当前项目</button>
       </div>`:`<div class="hint" style="margin-bottom:12px">${curPid?'仅管理员可管理当前项目的人员与职位。':'请先创建并选择一个项目，再添加该项目的人员。'}</div>`}
       ${personTable()}
     </div>
   </div>
+  ${mgr?personDirectoryTable():''}
   ${goalSettingPanel()}
   <div class="panel"><h2>数据 <span class="sub">备份与恢复</span></h2>
     <div class="row">
@@ -1273,13 +1272,21 @@ function personTable(){
     <td>${mgr? `<button class="btn link" onclick="editPerson('${p.id}')">编辑</button><button class="btn link danger" onclick="delPerson('${p.id}')">移出项目</button>`:''}</td></tr>`).join('')+
   `</tbody></table></div>`;
 }
+function personDirectoryTable(){
+  if(!S.persons.length) return '';
+  const rows=S.persons.map(p=>{
+    const memberships=projectIdsOf(p).map(id=>project(id)).filter(Boolean);
+    const labels=memberships.length?memberships.map(pr=>`<span class="badge ok">${esc(pr.name)}</span>`).join(' '):'<span class="badge warn">尚未分配项目</span>';
+    return `<tr><td><b>${esc(p.name)}</b></td><td>${labels}</td><td class="muted">${esc(p.team||'-')}</td></tr>`;
+  }).join('');
+  return `<div class="panel"><h2>全部人员归属 <span class="sub">用于核对人员是否放在正确项目</span></h2><div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>所属项目</th><th>团队</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
 function addProject(){
   if(!canManage()) return toast('仅管理员可新增项目','bad');
   const name=$('#np_name').value.trim(); if(!name) return toast('请填写项目名称','bad');
   const qa=$('#np_qa').value.trim();
   captureFormDrafts(); const sourceDraftKey=formDraftKey(); const previousDraft={...(FORM_DRAFTS.get(sourceDraftKey)||{})};
   const created={id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate:todayStr(),endDate:'',note:''};
-  S.persons.forEach(p=>ensureProjectProfile(p,null));
   ['np_name','np_price','np_qa'].forEach(id=>delete previousDraft[id]);
   FORM_DRAFTS.set(sourceDraftKey,{...previousDraft});
   S.projects.push(created); curPid=created.id; saveCurrentProject();

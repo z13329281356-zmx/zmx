@@ -2,6 +2,7 @@ data/store.json
 data/store.json.tmp
 data/auth.json
 data/auth.json.tmp
+data/*.bak
 npm-debug.log*
 firewall-setup.log
 .test-data/
