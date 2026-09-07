@@ -1,4 +1,6 @@
 data/store.json
 data/store.json.tmp
+data/auth.json
+data/auth.json.tmp
 npm-debug.log*
 firewall-setup.log
