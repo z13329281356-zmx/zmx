@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 8088);
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 const AUTH_FILE = path.join(DATA_DIR, 'auth.json');
 const COLLECTIONS = ['projects', 'batches', 'persons', 'daily', 'qc', 'attendance', 'settings'];
@@ -49,6 +49,7 @@ function loadStore() {
 
 let store = loadStore();
 const sessions = new Map();
+const eventClients = new Set();
 
 function loadAuth() {
   try {
@@ -119,6 +120,11 @@ function persistStore() {
   const tempFile = `${DATA_FILE}.tmp`;
   fs.writeFileSync(tempFile, JSON.stringify(store, null, 2), 'utf8');
   fs.renameSync(tempFile, DATA_FILE);
+}
+
+function broadcastRevision() {
+  const message = `event: change\ndata: ${JSON.stringify({ rev: store.rev })}\n\n`;
+  for (const response of eventClients) response.write(message);
 }
 
 function json(res, status, body) {
@@ -195,6 +201,7 @@ function mergeChanges(payload) {
   if (changed) {
     store.rev = nextRev;
     persistStore();
+    broadcastRevision();
   }
   return { changed, conflicts: [] };
 }
@@ -276,6 +283,18 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, rev: store.rev });
     return;
   }
+  if (url.pathname === '/api/events' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write(`event: ready\ndata: ${JSON.stringify({ rev: store.rev })}\n\n`);
+    eventClients.add(res);
+    req.on('close', () => eventClients.delete(res));
+    return;
+  }
   if (url.pathname === '/api/data' && req.method === 'GET') {
     json(res, 200, { ok: true, rev: store.rev, data: store.data });
     return;
@@ -354,6 +373,10 @@ const server = http.createServer(async (req, res) => {
   }
   serveStatic(req, res, url.pathname);
 });
+
+setInterval(() => {
+  for (const response of eventClients) response.write(': keepalive\n\n');
+}, 25000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`\nAIGC 标注项目管理工具已启动，端口 ${PORT}`);

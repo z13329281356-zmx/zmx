@@ -4,3 +4,4 @@ data/auth.json
 data/auth.json.tmp
 npm-debug.log*
 firewall-setup.log
+.test-data/

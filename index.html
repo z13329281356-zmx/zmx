@@ -134,7 +134,7 @@ select.attcell:disabled{opacity:.55; cursor:not-allowed}
     <select id="projSel" onchange="switchProject(this.value)"><option value="mtoxyxli3impa">aigc</option></select>
     <span id="syncState" class="sync warn" title="与共享服务器断开，请检查网络或服务器是否在运行">⚠ 离线(重连中)</span>
     <button class="btn ghost" onclick="openProjectModal()">＋ 项目</button>
-    <button id="meChip" class="btn ghost" onclick="openIdentity()" title="当前身份与权限" style="padding:8px 13px;white-space:nowrap">👤 <span id="meTxt">zmx · 负责人 🔒</span></button>
+    <button id="meChip" class="btn ghost" onclick="openIdentity()" title="当前身份与权限" style="padding:8px 13px;white-space:nowrap">👤 <span id="meTxt">未选身份</span></button>
   </div>
   <div class="content" id="view">
   <div class="cards">
@@ -171,7 +171,9 @@ function clone(x){ return JSON.parse(JSON.stringify(x)); }
 let SYNC={ mode:'local', base:null, rev:0, online:false, pending:false, busy:false, again:false };
 let AUTH={ initialized:false, admin:false, setupAllowed:false };
 let S = defaultState();
-let curPid = null;
+const CUR_PROJECT_KEY='aigc_current_project_v1';
+let curPid=(function(){ try{return localStorage.getItem(CUR_PROJECT_KEY)||null;}catch(e){return null;} })();
+function saveCurrentProject(){ try{ if(curPid)localStorage.setItem(CUR_PROJECT_KEY,curPid); else localStorage.removeItem(CUR_PROJECT_KEY); }catch(e){} }
 
 function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); return raw?Object.assign(defaultState(),JSON.parse(raw)):defaultState(); }catch(e){ return defaultState(); } }
 function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
@@ -213,8 +215,10 @@ function pushSync(){
     .then(({status,res})=>{
       SYNC.busy=false;
       if(res && res.ok){
+        const changedRev=res.rev!==SYNC.rev;
         setState(res.data); SYNC.rev=res.rev; SYNC.online=true;
         stampBase(); SYNC.pending=false;
+        if(changedRev){ renderProjSel(); renderPage(); }
         if(SYNC.again){ SYNC.again=false; pushSync(); }
       } else if(res && res.code==='CONFLICT'){
         setState(res.data); SYNC.rev=res.rev; SYNC.online=true; stampBase(); SYNC.pending=false; SYNC.again=false;
@@ -243,6 +247,17 @@ async function pollSync(){
       }
     }
   }catch(e){ SYNC.online=false; updateSyncUI(); }
+}
+function startLiveSync(){
+  if(SYNC.mode!=='server') return;
+  if(window.EventSource){
+    const events=new EventSource('/api/events');
+    events.addEventListener('change',event=>{
+      try{ const msg=JSON.parse(event.data); if(msg.rev!==SYNC.rev) pollSync(); }catch(e){ pollSync(); }
+    });
+    events.onopen=()=>{ SYNC.online=true; updateSyncUI(); };
+  }
+  setInterval(pollSync, 15000);
 }
 /* 启动：优先尝试服务器，失败则本地单机 */
 async function initSync(){
@@ -296,9 +311,31 @@ function project(id){ return S.projects.find(p=>p.id===id); }
 function batch(id){ return S.batches.find(b=>b.id===id); }
 function person(id){ return S.persons.find(p=>p.id===id); }
 function batchesOf(pid){ return S.batches.filter(b=>b.projectId===pid); }
-function persons(){ return S.persons; }
+function projectIdsOf(p){
+  if(Array.isArray(p&&p.projectIds)) return p.projectIds;
+  if(p&&typeof p.projectIds==='string'&&p.projectIds) return [p.projectIds];
+  return S.projects.map(project=>project.id); // 兼容旧数据：原人员默认属于已有项目
+}
+function personInProject(p,pid=curPid){ return !!pid && projectIdsOf(p).includes(pid); }
+function persons(pid=curPid){ return pid?S.persons.filter(p=>personInProject(p,pid)):[]; }
 function batchByNo(pid,no){ return S.batches.find(b=>b.projectId===pid && String(b.batchNo).trim()===String(no).trim()); }
 function personByName(name){ const n=String(name||'').trim(); return S.persons.find(p=>p.name===n); }
+function ensureProjectProfile(p,pid=curPid){
+  if(!p) return;
+  if(typeof p.projectIds==='string') p.projectIds=p.projectIds?[p.projectIds]:[];
+  if(!Array.isArray(p.projectIds)){
+    const legacyRoles=Array.isArray(p.roles)?p.roles.slice():[];
+    p.projectIds=S.projects.map(project=>project.id);
+    p.projectRoles=Object.fromEntries(p.projectIds.map(id=>[id,legacyRoles.slice()]));
+    p.projectTargets=Object.fromEntries(p.projectIds.map(id=>[id,{d:p.dTarget??null,q:p.qTarget??null}]));
+  }
+  if(!pid) return;
+  if(!p.projectIds.includes(pid)) p.projectIds.push(pid);
+  if(!p.projectRoles||typeof p.projectRoles!=='object') p.projectRoles={};
+  if(!Array.isArray(p.projectRoles[pid])) p.projectRoles[pid]=[];
+  if(!p.projectTargets||typeof p.projectTargets!=='object') p.projectTargets={};
+  if(!p.projectTargets[pid]) p.projectTargets[pid]={d:null,q:null};
+}
 
 function unitPriceOf(bid){ const b=batch(bid); if(b && b.unitPrice!==null && b.unitPrice!==undefined && String(b.unitPrice).trim()!=='') return Number(b.unitPrice)||0; const pid=b?b.projectId:curPid; const p=project(pid); return (p?Number(p.unitPrice):0)||0; }
 function qualifiedOf(r){ const q=r.qualified; return (q===null||q===undefined||String(q).trim()==='') ? (Number(r.completed)||0) : (Number(q)||0); }
@@ -310,9 +347,13 @@ function batchStats(bid){ const b=batch(bid)||{}; const total=Number(b.totalTask
 
 /* ---------- 人员职位 ---------- */
 const ROLES=['负责人','标注','质检'];
-function rolesOf(p){ return (p&&Array.isArray(p.roles)&&p.roles.length)?p.roles.slice():[]; }
-function hasRole(p,r){ return rolesOf(p).includes(r); }
-function roleBadges(p){ const r=rolesOf(p);
+function rolesOf(p,pid=curPid){
+  if(!p) return [];
+  if(p.projectRoles&&Array.isArray(p.projectRoles[pid])) return p.projectRoles[pid].slice();
+  return (!Array.isArray(p.projectIds)&&Array.isArray(p.roles))?p.roles.slice():[];
+}
+function hasRole(p,r,pid=curPid){ return rolesOf(p,pid).includes(r); }
+function roleBadges(p,pid=curPid){ const r=rolesOf(p,pid);
   const map={负责人:'warn',标注:'ok',质检:'muted'};
   return r.length? r.map(x=>`<span class="badge ${map[x]||'muted'}">${x}</span>`).join(' ') : '<span class="badge muted">-</span>'; }
 
@@ -382,18 +423,46 @@ const PAGES = [
   {k:'settings',  t:'基础设置', i:'⚙️'},
 ];
 let curPage='dashboard';
+const FORM_DRAFTS=new Map();
+let HAS_RENDERED=false;
+function formDraftKey(){ return `${curPage}:${curPid||''}`; }
+function captureFormDrafts(){
+  if(!HAS_RENDERED) return;
+  const view=$('#view'); if(!view) return;
+  const draft={};
+  $$('input[id],select[id],textarea[id]',view).forEach(el=>{
+    if(el.type==='file') return;
+    draft[el.id]=(el.type==='checkbox'||el.type==='radio')?{checked:el.checked}:{value:el.value};
+  });
+  FORM_DRAFTS.set(formDraftKey(),draft);
+}
+function restoreFormDrafts(){
+  const draft=FORM_DRAFTS.get(formDraftKey())||{};
+  Object.entries(draft).forEach(([id,value])=>{
+    const el=document.getElementById(id); if(!el) return;
+    if('checked' in value) el.checked=value.checked;
+    else if(Array.from(el.options||[]).some(o=>o.value===value.value) || !el.options) el.value=value.value;
+  });
+}
+function clearFormFields(ids){
+  ids.forEach(id=>{ const el=document.getElementById(id); if(!el) return; if(el.type==='checkbox'||el.type==='radio') el.checked=false; else el.value=''; });
+}
 function renderNav(){
   $('#nav').innerHTML = PAGES.map(p=>`<button class="${p.k===curPage?'active':''}" onclick="go('${p.k}')"><span class="ico">${p.i}</span>${p.t}</button>`).join('');
 }
 function go(k){ curPage=k; renderNav(); renderPage(); }
-function renderPage(){
+function renderPage(capture=true){
+  if(capture) captureFormDrafts();
   const meta=PAGES.find(p=>p.k===curPage);
-  $('#pageTitle').textContent = meta? (meta.i+'  '+meta.t) : '';
+  const activeProject=project(curPid);
+  $('#pageTitle').textContent = meta? (meta.i+'  '+meta.t+(activeProject?' · '+activeProject.name:'')) : '';
   const fn = {dashboard:renderDashboard,batches:renderBatches,efficiency:renderEfficiency,qc:renderQc,attendance:renderAttendance,reports:renderReports,settings:renderSettings}[curPage];
   $('#view').innerHTML = fn? fn() : '';
+  HAS_RENDERED=true;
+  restoreFormDrafts();
   updateMeUI();
 }
-function switchProject(pid){ curPid=pid; renderPage(); }
+function switchProject(pid){ captureFormDrafts(); curPid=pid; saveCurrentProject(); effFilters={from:'',to:'',batch:'',person:''}; qcFilters={from:'',to:'',batch:'',person:''}; renderPage(false); }
 
 /* ---------- 身份选择与服务器管理员 ---------- */
 function updateMeUI(){ const el=$('#meTxt'); if(el) el.textContent=identityLabel()||'…'; }
@@ -453,6 +522,7 @@ function renderProjSel(){
   sel.innerHTML = opts || '<option value="">（无项目）</option>';
   if(!curPid && S.projects.length) curPid=S.projects[0].id;
   if(S.projects.length && !S.projects.find(p=>p.id===curPid)) curPid=S.projects[0].id;
+  saveCurrentProject();
 }
 
 /* ============================ 驾驶舱 ============================ */
@@ -559,6 +629,7 @@ function addBatch(){
   if(!(total>0)) return toast('请填写总任务条数','bad');
   const price=$('#nb_price').value.trim(); const qa=$('#nb_qa').value.trim();
   S.batches.push({id:uid(),projectId:curPid,batchNo:no,totalTasks:total,unitPrice:price===''?null:Number(price),qaRate:qa===''?null:Math.min(100,Math.max(0,Number(qa)||100)),deadline:$('#nb_deadline').value,note:$('#nb_note').value,createdAt:todayStr()});
+  clearFormFields(['nb_no','nb_total','nb_price','nb_qa','nb_deadline','nb_note']);
   save(); renderPage(); toast('批次已新增','ok');
 }
 function editBatch(id){
@@ -590,8 +661,13 @@ function delBatch(id){
 
 /* ============================ 每日目标与达成 ============================ */
 let goalDate = todayStr();
-function dGoal(p){ const v=p&&p.dTarget; return v==null||v==='' ? 0 : (Number(v)||0); }
-function qGoal(p){ const v=p&&p.qTarget; return v==null||v==='' ? 0 : (Number(v)||0); }
+function projectTarget(p,kind,pid=curPid){
+  const value=p&&p.projectTargets&&p.projectTargets[pid]?p.projectTargets[pid][kind]:(p?(kind==='d'?p.dTarget:p.qTarget):null);
+  return value==null||value==='' ? 0 : (Number(value)||0);
+}
+function dGoal(p){ return projectTarget(p,'d'); }
+function qGoal(p){ return projectTarget(p,'q'); }
+function setProjectTarget(p,kind,value){ ensureProjectProfile(p); p.projectTargets[curPid][kind]=value; }
 function gsetDate(v){ if(v) goalDate=v; renderPage(); }
 function dayActual(pid, kind){
   const date=goalDate;
@@ -601,13 +677,13 @@ function dayActual(pid, kind){
 function applyAllGoal(kind){
   if(!canManage()) return;
   const inp=$('#goal_all_'+kind); const n=Math.max(0,Number(inp? inp.value:0)||0);
-  persons().filter(p=> kind==='qc'? hasRole(p,'质检') : hasRole(p,'标注')).forEach(p=>{ if(kind==='qc') p.qTarget=n; else p.dTarget=n; });
+  persons().filter(p=> kind==='qc'? hasRole(p,'质检') : hasRole(p,'标注')).forEach(p=>setProjectTarget(p,kind==='qc'?'q':'d',n));
   save(); renderPage(); toast('已为'+(kind==='qc'?'质检':'标注')+'全体设置日目标 '+n,'ok');
 }
 function setGoal(pid,kind,v){
   if(!canManage()) return;
   const p=person(pid); if(!p) return; const n=Math.max(0,Number(v)||0);
-  if(kind==='qc') p.qTarget=n; else p.dTarget=n;
+  setProjectTarget(p,kind==='qc'?'q':'d',n);
   save(); renderPage(); toast('已保存 '+p.name+' 日目标 '+n,'ok');
 }
 function missStreak(pid, kind){
@@ -649,7 +725,7 @@ function goalPanelHTML(kind){
       <span class="sp" style="flex:1"></span>
       <span class="hint">达成率=当日“${isQc?'质检条数':'合格条数'}”÷日目标；<span class="badge ok">≥100%</span><span class="badge warn">80~99%</span><span class="badge bad">&lt;80%</span>${mgr?'（点数字可直接改）':'　🔒 修改目标请先登录管理员 👤'}</span>
     </div>`;
-  if(!ps.length){ h+='<div class="empty">暂无人员设置该职位（请负责人到「基础设置」设置职位）</div></div>'; return h; }
+  if(!ps.length){ h+='<div class="empty">当前项目暂无人员设置该职位（请管理员到「基础设置」配置）</div></div>'; return h; }
   h+=`<div class="tbl-wrap"><table><thead><tr><th>${isQc?'质检员':'标注员'}</th><th>团队</th><th class="num">日目标(条)</th><th class="num">当日实际</th><th class="num">达成率</th><th>状态</th></tr></thead><tbody>`;
   ps.forEach(p=>{
     const goal= isQc? qGoal(p): dGoal(p);
@@ -678,8 +754,9 @@ function renderEfficiency(){
   if(!curPid) return emptyBlock('请先创建项目');
   const bs=batchesOf(curPid); const ps=persons();
   const mgr=canManage();
-  const entryPs = mgr? ps : (canRecordDaily()&&mePerson()? [mePerson()] : []);
-  const entryNote = entryPs.length? '' : (bootstrapMode()? '<div class="hint" style="margin-bottom:12px">初始化阶段：先添加人员并设职位，即可录入。</div>' : '<div class="hint" style="margin-bottom:12px">当前身份无标注录入权限（只读）。请点击右上角 👤 切换为「标注」或「负责人」。</div>');
+  const annotationPs=ps.filter(p=>hasRole(p,'标注'));
+  const entryPs = mgr? annotationPs : (canRecordDaily()&&mePerson()? [mePerson()] : []);
+  const entryNote = entryPs.length? '' : (mgr?'<div class="hint" style="margin-bottom:12px">当前项目还没有配置标注员，请到「基础设置」为人员设置本项目的“标注”职位。</div>':'<div class="hint" style="margin-bottom:12px">当前身份无本项目的标注录入权限（只读）。请点击右上角 👤 选择具有本项目“标注”职位的身份。</div>');
   const addRow = entryPs.length? `
     <div class="row">
       <div class="field"><label>日期</label><input id="d_date" type="date" value="${todayStr()}"></div>
@@ -751,6 +828,7 @@ function addDaily(){
   const qualified = qRaw===''? completed : Number(qRaw);
   if(qualified>completed) return toast('合格条数不能大于完成条数','bad');
   S.daily.push({id:uid(),projectId:curPid,personId:pid,batchId:bid,date,completed,qualified,hours,note:$('#d_note').value,createdAt:new Date().toISOString()});
+  clearFormFields(['d_completed','d_qualified','d_hours','d_note']);
   save(); renderPage(); toast('已录入','ok');
 }
 function delDaily(id){ const d=S.daily.find(x=>x.id===id); if(d&&!canTouchDaily(d)) return toast('只能删除自己的记录','bad'); if(!confirm('删除该条记录？')) return; S.daily=S.daily.filter(x=>x.id!==id); save(); renderPage(); }
@@ -795,8 +873,7 @@ function applyQcFilters(list){
   return list;
 }
 function qcStaff(){
-  const r=persons().filter(p=>hasRole(p,'质检'));
-  return r.length? r : persons();
+  return persons().filter(p=>hasRole(p,'质检'));
 }
 function renderQc(){
   if(!curPid) return emptyBlock('请先创建项目');
@@ -804,7 +881,7 @@ function renderQc(){
   const mgr=canManage();
   /* 筛选下拉（查看用）：有质检职位的人，没设则全部 */
   const viewPs=qcStaff();
-  /* 录入人选：负责人=所有质检；质检员=只能录自己；其他/只读=不能录入 */
+  /* 录入人选：管理员=当前项目质检员；质检员=只能录自己；其他/只读=不能录入 */
   const entryPs = mgr ? viewPs : (canRecordQc()&&mePerson()? [mePerson()] : []);
   let html=goalPanelHTML('qc');
   if(entryPs.length){
@@ -818,8 +895,8 @@ function renderQc(){
       <div class="field"><label>备注</label><input id="q_note" placeholder="可选"></div>
       <button class="btn" onclick="addQc()">＋ 录入</button>
     </div></div>`;
-  } else if(bootstrapMode()){
-    html+=`<div class="panel"><h2>录入质检</h2><div class="empty">初始化阶段：请先在「基础设置」添加人员并设置职位（质检）后录入。</div></div>`;
+  } else {
+    html+=`<div class="panel"><h2>录入质检</h2><div class="empty">${viewPs.length?'请选择具有当前项目“质检”职位的身份后录入。':'当前项目未配置质检员，请由管理员在「基础设置」中为人员设置本项目的“质检”职位。'}</div></div>`;
   }
   html+=`<div class="panel"><h2>质检记录 <span class="sub">质检量只计工作量，不计产值</span></h2>
     <div class="row" style="margin-top:0">
@@ -884,6 +961,7 @@ function addQc(){
   if(!(checked>0)) return toast('请填写质检条数','bad');
   if(bad>checked) return toast('不合格条数不能大于质检条数','bad');
   S.qc.push({id:uid(),projectId:curPid,personId:pid,batchId:bid,date,checked,bad,note:$('#q_note').value,createdAt:new Date().toISOString()});
+  clearFormFields(['q_checked','q_bad','q_note']);
   save(); renderPage(); toast('质检已录入','ok');
 }
 function delQc(id){ const q=S.qc.find(x=>x.id===id); if(q&&!canTouchQc(q)) return toast('只能删除自己的质检记录','bad'); if(!confirm('删除该质检记录？')) return; S.qc=S.qc.filter(x=>x.id!==id); save(); renderPage(); }
@@ -1135,8 +1213,8 @@ function renderSettings(){
       </div>`:`<div class="hint" style="margin-bottom:12px">仅管理员可新增 / 编辑项目与单价。</div>`}
       ${projectTable()}
     </div>
-    <div class="panel"><h2>人员 <span class="sub">职位可多选：一人可既标注又质检</span></h2>
-      ${mgr? `
+    <div class="panel"><h2>人员 <span class="sub">当前项目：${esc((project(curPid)||{}).name||'未选择')}；职位按项目分别设置</span></h2>
+      ${mgr&&curPid? `
       <div class="row">
         <div class="field"><label>姓名</label><input id="nper_name" placeholder="张三"></div>
         <div class="field"><label>团队/分组</label><input id="nper_team" placeholder="可选"></div>
@@ -1144,7 +1222,7 @@ function renderSettings(){
           ${ROLES.map((r,i)=>`<label style="display:flex;align-items:center;gap:5px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="nper_r${i}" value="${r}"> ${r}</label>`).join('')}
         </div></div>
         <button class="btn" onclick="addPerson()">＋ 新增</button>
-      </div>`:`<div class="hint" style="margin-bottom:12px">仅管理员可管理人员与职位。</div>`}
+      </div>`:`<div class="hint" style="margin-bottom:12px">${curPid?'仅管理员可管理当前项目的人员与职位。':'请先创建并选择一个项目，再添加该项目的人员。'}</div>`}
       ${personTable()}
     </div>
   </div>
@@ -1187,19 +1265,26 @@ function projectTable(){
   `</tbody></table></div>`;
 }
 function personTable(){
-  if(!S.persons.length) return '<div class="empty">暂无人员</div>';
+  const currentPersons=persons();
+  if(!currentPersons.length) return '<div class="empty">当前项目暂无人员</div>';
   const mgr=canManage();
   return `<div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>职位</th><th>团队</th><th></th></tr></thead><tbody>`+
-  S.persons.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${roleBadges(p)}</td><td class="muted">${esc(p.team||'-')}</td>
-    <td>${mgr? `<button class="btn link" onclick="editPerson('${p.id}')">编辑</button><button class="btn link danger" onclick="delPerson('${p.id}')">删除</button>`:''}</td></tr>`).join('')+
+  currentPersons.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${roleBadges(p)}</td><td class="muted">${esc(p.team||'-')}</td>
+    <td>${mgr? `<button class="btn link" onclick="editPerson('${p.id}')">编辑</button><button class="btn link danger" onclick="delPerson('${p.id}')">移出项目</button>`:''}</td></tr>`).join('')+
   `</tbody></table></div>`;
 }
 function addProject(){
   if(!canManage()) return toast('仅管理员可新增项目','bad');
   const name=$('#np_name').value.trim(); if(!name) return toast('请填写项目名称','bad');
   const qa=$('#np_qa').value.trim();
-  S.projects.push({id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate:todayStr(),endDate:'',note:''});
-  save(); renderProjSel(); renderPage(); toast('项目已新增','ok');
+  captureFormDrafts(); const sourceDraftKey=formDraftKey(); const previousDraft={...(FORM_DRAFTS.get(sourceDraftKey)||{})};
+  const created={id:uid(),name,unitPrice:Number($('#np_price').value)||0,qaRate: qa===''?100:Math.min(100,Math.max(0,Number(qa)||100)),startDate:todayStr(),endDate:'',note:''};
+  S.persons.forEach(p=>ensureProjectProfile(p,null));
+  ['np_name','np_price','np_qa'].forEach(id=>delete previousDraft[id]);
+  FORM_DRAFTS.set(sourceDraftKey,{...previousDraft});
+  S.projects.push(created); curPid=created.id; saveCurrentProject();
+  FORM_DRAFTS.set(formDraftKey(),previousDraft);
+  save(); renderProjSel(); renderPage(false); toast('项目已新增并切换到该项目，可继续添加人员','ok');
 }
 function editProject(id){
   const p=project(id); if(!p) return;
@@ -1225,18 +1310,23 @@ function saveProjectEdit(id){
 function delProject(id){
   if(!canManage()) return toast('仅管理员可删除项目','bad');
   if(!confirm('删除项目及其批次？（人效/出勤记录会保留）')) return;
+  S.persons.forEach(p=>{ ensureProjectProfile(p,null); p.projectIds=p.projectIds.filter(pid=>pid!==id); delete p.projectRoles[id]; delete p.projectTargets[id]; });
   S.projects=S.projects.filter(p=>p.id!==id); S.batches=S.batches.filter(b=>b.projectId!==id);
   if(curPid===id) curPid=S.projects.length?S.projects[0].id:null;
-  save(); renderProjSel(); renderPage();
+  saveCurrentProject(); save(); renderProjSel(); renderPage();
 }
 function openProjectModal(){ if(!canManage()){ toast('仅管理员可新建项目，请先登录管理员','bad'); openIdentity(); return; } go('settings'); setTimeout(()=>{ const e=$('#np_name'); if(e) e.focus(); },50); }
 function addPerson(){
   if(!canManage()) return toast('仅管理员可新增人员','bad');
+  if(!curPid) return toast('请先创建并选择项目','bad');
   const name=$('#nper_name').value.trim(); if(!name) return toast('请填写姓名','bad');
-  if(personByName(name)) return toast('该人员已存在','bad');
   const roles=ROLES.filter((r,i)=> { const el=$('#nper_r'+i); return el && el.checked; });
-  S.persons.push({id:uid(),name,team:$('#nper_team').value.trim(),roles});
-  save(); renderPage(); toast('人员已新增','ok');
+  let p=personByName(name);
+  if(p&&personInProject(p,curPid)) return toast('该人员已在当前项目中','bad');
+  if(p){ ensureProjectProfile(p); p.projectRoles[curPid]=roles; if($('#nper_team').value.trim()) p.team=$('#nper_team').value.trim(); }
+  else S.persons.push({id:uid(),name,team:$('#nper_team').value.trim(),projectIds:[curPid],projectRoles:{[curPid]:roles},projectTargets:{[curPid]:{d:null,q:null}}});
+  clearFormFields(['nper_name','nper_team',...ROLES.map((r,i)=>'nper_r'+i)]);
+  save(); renderPage(); toast(p?'人员已加入当前项目':'人员已新增到当前项目','ok');
 }
 function roleChecks(roles){
   return ROLES.map((r,i)=>{ const on=roles.includes(r);
@@ -1259,16 +1349,18 @@ function editPerson(id){
 function savePersonEdit(id){
   const p=person(id); if(!p) return;
   if(!canManage()) return toast('仅管理员可编辑人员','bad');
-  p.name=$('#eper_name').value.trim(); p.team=$('#eper_team').value.trim();
-  p.roles=ROLES.filter((r,i)=> { const el=$('#per_r'+i); return el && el.checked; });
-  const d=$('#eper_d').value.trim(); p.dTarget = d===''? null : Math.max(0,Number(d)||0);
-  const q=$('#eper_q').value.trim(); p.qTarget = q===''? null : Math.max(0,Number(q)||0);
+  ensureProjectProfile(p); p.name=$('#eper_name').value.trim(); p.team=$('#eper_team').value.trim();
+  p.projectRoles[curPid]=ROLES.filter((r,i)=> { const el=$('#per_r'+i); return el && el.checked; });
+  const d=$('#eper_d').value.trim(); p.projectTargets[curPid].d = d===''? null : Math.max(0,Number(d)||0);
+  const q=$('#eper_q').value.trim(); p.projectTargets[curPid].q = q===''? null : Math.max(0,Number(q)||0);
   save(); closeOverlay(); renderPage(); toast('已保存','ok');
 }
 function delPerson(id){
-  if(!canManage()) return toast('仅管理员可删除人员','bad');
-  if(!confirm('删除该人员？（不影响历史记录）')) return;
-  S.persons=S.persons.filter(p=>p.id!==id); save(); renderPage();
+  if(!canManage()) return toast('仅管理员可移除人员','bad');
+  if(!confirm('将该人员从当前项目移除？（不影响其他项目和历史记录）')) return;
+  const p=person(id); if(!p) return; ensureProjectProfile(p);
+  p.projectIds=p.projectIds.filter(pid=>pid!==curPid); delete p.projectRoles[curPid]; delete p.projectTargets[curPid];
+  save(); renderPage(); toast('已从当前项目移除','ok');
 }
 
 /* ============================ 通用导出 ============================ */
@@ -1487,7 +1579,13 @@ function doImport(){
     let b=batchByNo(curPid,batchNo);
     if(!b){ unknownBatches.add(batchNo); skipNoBatch++; return; }
     let per=personByName(personName);
-    if(!per){ if(!autoPerson){ skipBad++; return; } per={id:uid(),name:personName,team:'',roles:['标注']}; S.persons.push(per); }
+    if(!per){
+      if(!autoPerson){ skipBad++; return; }
+      per={id:uid(),name:personName,team:'',projectIds:[curPid],projectRoles:{[curPid]:['标注']},projectTargets:{[curPid]:{d:null,q:null}}}; S.persons.push(per);
+    }else if(!personInProject(per,curPid)){
+      if(!autoPerson){ skipBad++; return; }
+      ensureProjectProfile(per); per.projectRoles[curPid]=['标注'];
+    }
     const qualified=qualifiedRaw===''? completed : num(qualifiedRaw);
     S.daily.push({id:uid(),projectId:curPid,personId:per.id,batchId:b.id,date,completed,qualified,hours,note:g(6),createdAt:new Date().toISOString()});
     ok++;
@@ -1513,7 +1611,7 @@ function emptyBlock(t){ return `<div class="panel"><div class="empty">${t}</div>
     if(AUTH.setupAllowed) showAdminSetup();
     else toast('管理员尚未初始化，请联系服务器电脑的管理者','bad');
   }
-  if(SYNC.mode==='server'){ setInterval(pollSync, 4000); }
+  if(SYNC.mode==='server') startLiveSync();
 })();
 </script>
 
