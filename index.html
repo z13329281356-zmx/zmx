@@ -210,7 +210,7 @@ function pushSync(){
   const ch=collectChanges();
   if(!ch.has){ stampBase(); SYNC.pending=false; return; }
   SYNC.busy=true; SYNC.pending=true; updateSyncUI();
-  fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rev:SYNC.rev,upd:ch.upd,del:ch.del})})
+  fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json','X-AIGC-Person':(ME&&ME.id)||'','X-AIGC-Project':curPid||''},body:JSON.stringify({rev:SYNC.rev,upd:ch.upd,del:ch.del})})
     .then(async r=>({status:r.status,res:await r.json()}))
     .then(({status,res})=>{
       SYNC.busy=false;
@@ -224,10 +224,10 @@ function pushSync(){
         setState(res.data); SYNC.rev=res.rev; SYNC.online=true; stampBase(); SYNC.pending=false; SYNC.again=false;
         renderProjSel(); renderPage();
         toast('这条记录刚被其他人修改，已加载最新内容；请重新操作，未覆盖对方数据','bad');
-      } else if(res && (res.code==='ADMIN_REQUIRED' || res.code==='SETUP_REQUIRED')){
+      } else if(res && (res.code==='ADMIN_REQUIRED' || res.code==='MANAGER_REQUIRED' || res.code==='SETUP_REQUIRED')){
         if(res.data){ setState(res.data); SYNC.rev=res.rev; stampBase(); renderProjSel(); renderPage(); }
         SYNC.online=true; SYNC.pending=false; SYNC.again=false;
-        toast(res.code==='SETUP_REQUIRED'?'请先在服务器电脑设置管理员密码':'此操作仅管理员可执行，请先登录管理员','bad');
+        toast(res.code==='SETUP_REQUIRED'?'请先在服务器电脑设置管理员密码':'此操作需要当前项目负责人或服务器管理员权限','bad');
         refreshAuth();
       } else { SYNC.online=status<500; SYNC.pending=false; }
       updateSyncUI();
@@ -367,8 +367,9 @@ function bootstrapMode(){ return S.persons.length===0; }      // 还没建人员
 function isManager(){ return rolesOf(mePerson()).includes('负责人'); }
 function hasAnyManager(){ return S.persons.some(p=>rolesOf(p).includes('负责人')); }
 function canManage(){
-  return SYNC.mode==='server'&&AUTH.admin;
+  return SYNC.mode==='server'&&(AUTH.admin||isManager());
 }
+function canManageProject(pid){ return SYNC.mode==='server'&&(AUTH.admin||(pid===curPid&&hasRole(mePerson(),'负责人',pid))); }
 function canRecordDaily(){ return canManage() || rolesOf(mePerson()).includes('标注'); }
 function canRecordQc(){ return canManage() || rolesOf(mePerson()).includes('质检'); }
 function canTouchDaily(rec){ return canManage() || (canRecordDaily() && rec.personId===(mePerson()||{}).id); }
@@ -376,7 +377,7 @@ function canTouchQc(rec){ return canManage() || (canRecordQc() && rec.personId==
 function identityLabel(){
   const p=mePerson();
   if(!p) return AUTH.admin?'管理员 · 可配置':(bootstrapMode()?'未选身份':'未选身份 · 只读');
-  return `${p.name} · ${rolesOf(p).join('/')||'成员'}${AUTH.admin?' · 管理员':(isManager()?' 🔒':'')}`;
+  return `${p.name} · ${rolesOf(p).join('/')||'成员'}${AUTH.admin?' · 管理员':(isManager()?' · 可管理':'')}`;
 }
 
 /* ---------- 质检 ---------- */
@@ -493,7 +494,7 @@ function openIdentity(){
   const ps=persons();
   const cur=ME&&ME.id?ME.id:'';
   showOverlay(`<h3>👤 身份与管理员权限</h3>
-    <div class="hint" style="margin-bottom:12px">选择身份用于限定个人记录。项目、批次、人员和职位只能由服务器管理员修改；选择“负责人”不会自动获得管理员权限。</div>
+    <div class="hint" style="margin-bottom:12px">选择身份用于限定个人记录。负责人可管理自己所属的项目、批次、人员与职位；管理员密码只有服务器管理员可以修改。</div>
     <div class="field"><label>我是</label><select id="meSel">
       <option value="">— 只读浏览（不录入）—</option>
       ${ps.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(p.name)}（${esc(rolesOf(p).join('/')||'成员')}）</option>`).join('')}
@@ -516,7 +517,7 @@ function enterIdentity(){
 function exitIdentity(){ ME=null; saveMe(); renderPage(); updateMeUI(); toast('已退出身份（只读）'); }
 function showAdminSetup(){
   showOverlay(`<h3>🔐 首次设置管理员</h3>
-    <div class="hint" style="margin-bottom:12px">此步骤只能在服务器电脑上完成。设置后，只有知道管理员密码的人才能修改项目、批次、人员和职位权限。</div>
+    <div class="hint" style="margin-bottom:12px">此步骤只能在服务器电脑上完成。设置后，你可以给人员分配项目和“负责人”职位；负责人可管理所属项目，但不能修改管理员密码。</div>
     <div class="field"><label>管理员密码（至少 6 位）</label><input id="setup_pw" type="password" autocomplete="new-password"></div>
     <div class="field" style="margin-top:10px"><label>再次输入</label><input id="setup_pw2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')setupAdmin()"></div>
     <div class="actions"><button class="btn" onclick="setupAdmin()">创建管理员</button></div>`);
@@ -626,7 +627,7 @@ function renderBatches(){
       <div class="field"><label>截止日期</label><input id="nb_deadline" type="date"></div>
       <div class="field"><label>备注</label><input id="nb_note" placeholder="可选"></div>
       <button class="btn" onclick="addBatch()">＋ 新增批次</button>
-    </div>` : `<div class="hint" style="margin-bottom:12px">仅管理员可新增 / 编辑批次、单价与质检比例。当前为只读。</div>`;
+    </div>` : `<div class="hint" style="margin-bottom:12px">仅当前项目负责人或服务器管理员可新增 / 编辑批次、单价与质检比例。当前为只读。</div>`;
   if(!bs.length){ html+='<div class="empty">还没有批次，请先新增</div>'; }
   else{
     html+=`<div class="tbl-wrap"><table><thead><tr><th>批次号</th><th class="num">总任务</th><th class="num">已完成(合格)</th><th class="num">剩余</th><th style="width:200px">进度</th><th class="num">单价</th><th class="num">质检%</th><th>截止</th><th>备注</th><th></th></tr></thead><tbody>`;
@@ -646,7 +647,7 @@ function renderBatches(){
   return html;
 }
 function addBatch(){
-  if(!canManage()) return toast('仅管理员可新增批次','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可新增批次','bad');
   const no=$('#nb_no').value.trim(); const total=Number($('#nb_total').value);
   if(!no) return toast('请填写批次号','bad');
   if(!(total>0)) return toast('请填写总任务条数','bad');
@@ -657,7 +658,7 @@ function addBatch(){
 }
 function editBatch(id){
   const b=batch(id); if(!b) return;
-  if(!canManage()) return toast('仅管理员可编辑批次','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可编辑批次','bad');
   showOverlay(`<h3>编辑批次 ${esc(b.batchNo)}</h3>
     <div class="field"><label>批次号</label><input id="eb_no" value="${esc(b.batchNo)}"></div>
     <div class="field" style="margin-top:10px"><label>总任务条数</label><input id="eb_total" type="number" min="0" value="${b.totalTasks}"></div>
@@ -669,7 +670,7 @@ function editBatch(id){
 }
 function saveBatchEdit(id){
   const b=batch(id); if(!b) return;
-  if(!canManage()) return toast('仅管理员可编辑批次','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可编辑批次','bad');
   b.batchNo=$('#eb_no').value.trim(); b.totalTasks=Number($('#eb_total').value)||0;
   const pr=$('#eb_price').value.trim(); b.unitPrice= pr===''?null:Number(pr);
   const qa=$('#eb_qa').value.trim(); b.qaRate= qa===''?null:Math.min(100,Math.max(0,Number(qa)||100));
@@ -677,7 +678,7 @@ function saveBatchEdit(id){
   save(); closeOverlay(); renderPage(); toast('已保存','ok');
 }
 function delBatch(id){
-  if(!canManage()) return toast('仅管理员可删除批次','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可删除批次','bad');
   if(!confirm('删除该批次？（不影响已录入的人效记录）')) return;
   S.batches=S.batches.filter(b=>b.id!==id); save(); renderPage(); toast('已删除');
 }
@@ -1206,7 +1207,7 @@ function goalSettingPanel(){
   const ps=persons(); const mgr=canManage();
   if(!ps.length) return '';
   let h=`<div class="panel"><h2>🎯 每日产量目标设置 <span class="sub">标注/质检分开设，日目标×天数≈每人预期产量</span></h2>
-    <div class="hint" style="margin-bottom:10px">${mgr?'直接在数字框里改，输入后即自动保存：':'🔒 仅管理员可修改目标。请点右上角 👤 登录管理员后再来设置。'}</div>
+    <div class="hint" style="margin-bottom:10px">${mgr?'直接在数字框里改，输入后即自动保存：':'🔒 仅当前项目负责人或服务器管理员可修改目标。'}</div>
     <div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>职位</th><th>团队</th><th class="num">标注日目标(条/天)</th><th class="num">质检日目标(条/天)</th></tr></thead><tbody>`;
   h+=ps.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${roleBadges(p)}</td><td class="muted">${esc(p.team||'-')}</td>
     <td class="num">${mgr? `<input type="number" min="0" value="${dGoal(p)||''}" style="width:90px" placeholder="未设" title="标注每日产量目标" onchange="savePersonGoal('${p.id}','d',this.value)">` : (dGoal(p)>0? dGoal(p) : '<span class="muted">未设</span>')}</td>
@@ -1217,21 +1218,22 @@ function goalSettingPanel(){
 }
 function renderSettings(){
   const mgr=canManage();
+  const root=AUTH.admin;
   let html=`<div class="panel"><h2>👤 身份与权限</h2>
     <div class="row" style="align-items:center">
       <button class="btn ghost" onclick="openIdentity()">👤 ${esc(identityLabel()||'未选身份')} — 点此选择/切换</button>
       ${mePerson()? `<button class="btn ghost" onclick="exitIdentity()">退出(只读)</button>`:''}
-      ${mgr? `<button class="btn" onclick="setMgrPw()">修改管理员密码</button><button class="btn ghost" onclick="logoutAdmin()">退出管理员</button>`:
+      ${root? `<button class="btn" onclick="setMgrPw()">修改管理员密码</button><button class="btn ghost" onclick="logoutAdmin()">退出管理员</button>`:
         AUTH.initialized?`<button class="btn" onclick="openIdentity()">管理员登录</button>`:
         AUTH.setupAllowed?`<button class="btn" onclick="showAdminSetup()">首次设置管理员</button>`:''}
       <span class="sp" style="flex:1"></span>
       <span class="badge ${mgr?'ok':'warn'}">${mgr?'管理权限已生效':'当前无管理权限（项目/人员/批次只读）'}</span>
     </div>
-    <div class="hint">权限规则：项目、批次、单价、人员和职位由服务器管理员控制。普通用户即使选择“负责人”也不能修改权限；只有获得管理员密码并登录后才可管理。标注与质检身份用于限定个人记录。</div>
+    <div class="hint">权限规则：负责人可管理自己所属项目的项目资料、批次、人员、职位和业务数据。新建/删除项目、跨项目归属、导入/清空全部数据和修改管理员密码仅限服务器管理员。</div>
   </div>`;
   html+=`<div class="two">
     <div class="panel"><h2>项目 <span class="sub">单价、项目周期、默认质检比例</span></h2>
-      ${mgr? `
+      ${root? `
       <div class="row">
         <div class="field" style="flex:1"><label>项目名称</label><input id="np_name" placeholder="如 某客户AIGC标注"></div>
         <div class="field"><label>默认单价(元/条)</label><input id="np_price" type="number" min="0" step="0.01" placeholder="0.50"></div>
@@ -1239,7 +1241,7 @@ function renderSettings(){
         <div class="field"><label>开始日期</label><input id="np_start" type="date" value="${todayStr()}"></div>
         <div class="field"><label>结束日期</label><input id="np_end" type="date"></div>
         <button class="btn" onclick="addProject()">＋ 新增</button>
-      </div>`:`<div class="hint" style="margin-bottom:12px">仅管理员可新增 / 编辑项目与单价。</div>`}
+      </div>`:`<div class="hint" style="margin-bottom:12px">新建项目仅限服务器管理员；负责人可以编辑自己所属项目。</div>`}
       ${projectTable()}
     </div>
     <div class="panel"><h2>人员 <span class="sub">当前项目：${esc((project(curPid)||{}).name||'未选择')}；职位按项目分别设置</span></h2>
@@ -1252,16 +1254,16 @@ function renderSettings(){
           ${ROLES.map((r,i)=>`<label style="display:flex;align-items:center;gap:5px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="nper_r${i}" value="${r}"> ${r}</label>`).join('')}
         </div></div>
         <button class="btn" onclick="addPerson()">＋ 加入当前项目</button>
-      </div>`:`<div class="hint" style="margin-bottom:12px">${curPid?'仅管理员可管理当前项目的人员与职位。':'请先创建并选择一个项目，再添加该项目的人员。'}</div>`}
+      </div>`:`<div class="hint" style="margin-bottom:12px">${curPid?'仅当前项目负责人或服务器管理员可管理人员与职位。':'请先创建并选择一个项目，再添加该项目的人员。'}</div>`}
       ${personTable()}
     </div>
   </div>
-  ${mgr?personDirectoryTable():''}
+  ${root?personDirectoryTable():''}
   ${goalSettingPanel()}
   <div class="panel"><h2>数据 <span class="sub">备份与恢复</span></h2>
     <div class="row">
       <button class="btn ghost" onclick="exportBackup()">导出全部数据(JSON备份)</button>
-      ${mgr? `<button class="btn ghost" onclick="$('#restoreFile').click()">导入备份</button>
+      ${root? `<button class="btn ghost" onclick="$('#restoreFile').click()">导入备份</button>
       <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(this)">
       <button class="btn ghost" onclick="loadDemo()">载入示例数据</button>
       <button class="btn danger" onclick="clearAll()">清空所有数据</button>`:''}
@@ -1289,10 +1291,9 @@ async function saveMgrPw(){
 }
 function projectTable(){
   if(!S.projects.length) return '<div class="empty">暂无项目</div>';
-  const mgr=canManage();
   return `<div class="tbl-wrap"><table><thead><tr><th>名称</th><th class="num">单价</th><th class="num">质检比例</th><th>开始</th><th>结束</th><th></th></tr></thead><tbody>`+
   S.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td class="num">${money(p.unitPrice||0)}</td><td class="num">${p.qaRate!=null?p.qaRate:100}%</td><td>${esc(p.startDate||'-')}</td><td>${esc(p.endDate||'进行中')}</td>
-    <td>${mgr? `<button class="btn link" onclick="editProject('${p.id}')">编辑</button><button class="btn link danger" onclick="delProject('${p.id}')">删除</button>`:''}</td></tr>`).join('')+
+    <td>${canManageProject(p.id)? `<button class="btn link" onclick="editProject('${p.id}')">编辑</button>${AUTH.admin?`<button class="btn link danger" onclick="delProject('${p.id}')">删除</button>`:''}`:''}</td></tr>`).join('')+
   `</tbody></table></div>`;
 }
 function personTable(){
@@ -1314,7 +1315,7 @@ function personDirectoryTable(){
   return `<div class="panel"><h2>全部人员归属 <span class="sub">选择人员所属项目，并为每个项目分别设置职位</span></h2><div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>所属项目</th><th>团队</th><th>归属设置</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function editPersonProjects(id){
-  if(!canManage()) return toast('仅管理员可分配人员项目','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可分配跨项目归属','bad');
   const p=person(id); if(!p) return;
   const rows=S.projects.map((pr,i)=>{
     const joined=personInProject(p,pr.id); const roles=rolesOf(p,pr.id);
@@ -1328,7 +1329,7 @@ function editPersonProjects(id){
     <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button>${S.projects.length?`<button class="btn" onclick="savePersonProjects('${id}')">保存归属</button>`:''}</div>`);
 }
 function savePersonProjects(id){
-  if(!canManage()) return toast('仅管理员可分配人员项目','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可分配跨项目归属','bad');
   const p=person(id); if(!p) return;
   const projectIds=[], projectRoles={}, projectTargets={}, projectJoinedAt={};
   for(let i=0;i<S.projects.length;i++){
@@ -1344,7 +1345,7 @@ function savePersonProjects(id){
   save(); closeOverlay(); renderPage(); toast('人员项目归属已保存','ok');
 }
 function addProject(){
-  if(!canManage()) return toast('仅管理员可新增项目','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可新增项目','bad');
   const name=$('#np_name').value.trim(); if(!name) return toast('请填写项目名称','bad');
   const qa=$('#np_qa').value.trim();
   const startDate=$('#np_start').value||todayStr(), endDate=$('#np_end').value;
@@ -1359,7 +1360,7 @@ function addProject(){
 }
 function editProject(id){
   const p=project(id); if(!p) return;
-  if(!canManage()) return toast('仅管理员可编辑项目','bad');
+  if(!canManageProject(id)) return toast('仅该项目负责人或服务器管理员可编辑项目','bad');
   showOverlay(`<h3>编辑项目</h3>
     <div class="field"><label>名称</label><input id="ep_name" value="${esc(p.name)}"></div>
     <div class="field" style="margin-top:10px"><label>默认单价(元/条)</label><input id="ep_price" type="number" min="0" step="0.01" value="${p.unitPrice||0}"></div>
@@ -1372,7 +1373,7 @@ function editProject(id){
 }
 function saveProjectEdit(id){
   const p=project(id); if(!p) return;
-  if(!canManage()) return toast('仅管理员可编辑项目','bad');
+  if(!canManageProject(id)) return toast('仅该项目负责人或服务器管理员可编辑项目','bad');
   const startDate=$('#ep_start').value, endDate=$('#ep_end').value;
   if(endDate&&startDate&&endDate<startDate) return toast('项目结束日期不能早于开始日期','bad');
   p.name=$('#ep_name').value.trim(); p.unitPrice=Number($('#ep_price').value)||0;
@@ -1381,16 +1382,16 @@ function saveProjectEdit(id){
   save(); closeOverlay(); renderProjSel(); renderPage(); toast('已保存','ok');
 }
 function delProject(id){
-  if(!canManage()) return toast('仅管理员可删除项目','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可删除项目','bad');
   if(!confirm('删除项目及其批次？（人效/出勤记录会保留）')) return;
   S.persons.forEach(p=>{ ensureProjectProfile(p,null); p.projectIds=p.projectIds.filter(pid=>pid!==id); delete p.projectRoles[id]; delete p.projectTargets[id]; delete p.projectJoinedAt[id]; });
   S.projects=S.projects.filter(p=>p.id!==id); S.batches=S.batches.filter(b=>b.projectId!==id);
   if(curPid===id) curPid=S.projects.length?S.projects[0].id:null;
   saveCurrentProject(); save(); renderProjSel(); renderPage();
 }
-function openProjectModal(){ if(!canManage()){ toast('仅管理员可新建项目，请先登录管理员','bad'); openIdentity(); return; } go('settings'); setTimeout(()=>{ const e=$('#np_name'); if(e) e.focus(); },50); }
+function openProjectModal(){ if(!AUTH.admin){ toast('仅服务器管理员可新建项目，请先登录管理员','bad'); openIdentity(); return; } go('settings'); setTimeout(()=>{ const e=$('#np_name'); if(e) e.focus(); },50); }
 function addPerson(){
-  if(!canManage()) return toast('仅管理员可新增人员','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可新增人员','bad');
   if(!curPid) return toast('请先创建并选择项目','bad');
   const name=$('#nper_name').value.trim(); if(!name) return toast('请填写姓名','bad');
   const roles=ROLES.filter((r,i)=> { const el=$('#nper_r'+i); return el && el.checked; });
@@ -1407,7 +1408,7 @@ function roleChecks(roles){
 }
 function editPerson(id){
   const p=person(id); if(!p) return;
-  if(!canManage()) return toast('仅管理员可编辑人员','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可编辑人员','bad');
   const rs=rolesOf(p);
   showOverlay(`<h3>编辑人员</h3>
     <div class="field"><label>姓名</label><input id="eper_name" value="${esc(p.name)}"></div>
@@ -1421,7 +1422,7 @@ function editPerson(id){
 }
 function savePersonEdit(id){
   const p=person(id); if(!p) return;
-  if(!canManage()) return toast('仅管理员可编辑人员','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可编辑人员','bad');
   ensureProjectProfile(p); p.name=$('#eper_name').value.trim(); p.team=$('#eper_team').value.trim();
   p.projectRoles[curPid]=ROLES.filter((r,i)=> { const el=$('#per_r'+i); return el && el.checked; });
   const d=$('#eper_d').value.trim(); p.projectTargets[curPid].d = d===''? null : Math.max(0,Number(d)||0);
@@ -1429,7 +1430,7 @@ function savePersonEdit(id){
   save(); closeOverlay(); renderPage(); toast('已保存','ok');
 }
 function delPerson(id){
-  if(!canManage()) return toast('仅管理员可移除人员','bad');
+  if(!canManage()) return toast('仅当前项目负责人或服务器管理员可移除人员','bad');
   if(!confirm('将该人员从当前项目移除？（不影响其他项目和历史记录）')) return;
   const p=person(id); if(!p) return; ensureProjectProfile(p);
   p.projectIds=p.projectIds.filter(pid=>pid!==curPid); delete p.projectRoles[curPid]; delete p.projectTargets[curPid]; delete p.projectJoinedAt[curPid];
@@ -1506,17 +1507,17 @@ function exportBackup(){
   setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},300);
 }
 function importBackup(input){
-  if(!canManage()) return toast('仅管理员可导入备份','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可导入备份','bad');
   const f=input.files[0]; if(!f) return;
   const r=new FileReader(); r.onload=e=>{ try{ S=Object.assign(defaultState(),JSON.parse(e.target.result)); save(); renderProjSel(); renderPage(); toast('备份已导入','ok'); }catch(err){ toast('文件格式错误','bad'); } }; r.readAsText(f,'utf-8'); input.value='';
 }
 function clearAll(){
-  if(!canManage()) return toast('仅管理员可清空数据','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可清空数据','bad');
   if(!confirm('确定清空所有数据？此操作不可恢复（建议先导出备份）')) return;
   S=defaultState(); save(); curPid=null; renderProjSel(); renderPage();
 }
 function loadDemo(){
-  if(!canManage()) return toast('仅管理员可载入示例数据','bad');
+  if(!AUTH.admin) return toast('仅服务器管理员可载入示例数据','bad');
   if(!confirm('载入示例数据将覆盖当前全部数据，继续？')) return;
   const p1=uid(),p2=uid(); const pe1=uid(),pe2=uid(),pe3=uid();
   const b1=uid(),b2=uid(),b3=uid();
