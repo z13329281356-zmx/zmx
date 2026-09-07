@@ -124,7 +124,7 @@ select.attcell:disabled{opacity:.55; cursor:not-allowed}
 <aside class="side">
   <div class="logo"><span class="dot">🏷️</span>AIGC 标注管理</div>
   <nav class="nav" id="nav"><button class="active" onclick="go(&#39;dashboard&#39;)"><span class="ico">📊</span>驾驶舱</button><button class="" onclick="go(&#39;batches&#39;)"><span class="ico">🗂️</span>批次管理</button><button class="" onclick="go(&#39;efficiency&#39;)"><span class="ico">⚡</span>人效统计</button><button class="" onclick="go(&#39;qc&#39;)"><span class="ico">🧪</span>质检管理</button><button class="" onclick="go(&#39;attendance&#39;)"><span class="ico">🗓️</span>出勤报备</button><button class="" onclick="go(&#39;reports&#39;)"><span class="ico">📑</span>报表中心</button><button class="" onclick="go(&#39;settings&#39;)"><span class="ico">⚙️</span>基础设置</button></nav>
-  <div class="foot">同步状态见右上角<br>双击本文件=单机 · 网址访问=团队共享</div>
+  <div class="foot">同步状态见右上角<br>请使用局域网共享网址访问</div>
 </aside>
 <div class="main">
   <div class="topbar">
@@ -165,10 +165,11 @@ select.attcell:disabled{opacity:.55; cursor:not-allowed}
 <script>
 /* ============================ 基础状态与存储 ============================ */
 const LS_KEY = 'aigc_mgmt_v1';
+const LAN_SHARED_URL = 'http://10.0.12.255:8088/';
 function defaultState(){ return { projects:[], batches:[], persons:[], daily:[], qc:[], attendance:[], settings:[] }; }
 function clone(x){ return JSON.parse(JSON.stringify(x)); }
-/* 同步层：server = 团队共享(数据在服务器)；local = 单机(数据在本浏览器) */
-let SYNC={ mode:'local', base:null, rev:0, online:false, pending:false, busy:false, again:false };
+/* 同步层：正式使用 server 团队共享；offline 时禁止写入，避免产生分叉数据 */
+let SYNC={ mode:'connecting', base:null, rev:0, online:false, pending:false, busy:false, again:false };
 let AUTH={ initialized:false, admin:false, setupAllowed:false };
 let S = defaultState();
 const CUR_PROJECT_KEY='aigc_current_project_v1';
@@ -180,9 +181,8 @@ function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }cat
 function setState(ns){ S = Object.assign(defaultState(), ns||{}); }
 function stampBase(){ SYNC.base = clone(S); }
 
-/* 主保存：无论哪种模式先写本机快照；服务器模式再推送到共享端 */
+/* 主保存：正式数据只推送到共享服务器 */
 function save(){
-  saveLocal();
   if(SYNC.mode==='server') pushSync();
   updateSyncUI();
 }
@@ -259,16 +259,18 @@ function startLiveSync(){
   }
   setInterval(pollSync, 15000);
 }
-/* 启动：优先尝试服务器，失败则本地单机 */
+/* 启动：本工具只使用共享服务器，旧本地入口自动跳转到局域网地址 */
 async function initSync(){
-  if(!location.host){ // file:// 双击本地打开：直接走单机，不请求服务器
-    SYNC.mode='local'; SYNC.online=false; setState(loadLocal()); stampBase(); return false;
+  const oldEntry=location.protocol==='file:' || location.hostname.endsWith('github.io');
+  if(oldEntry){
+    location.replace(LAN_SHARED_URL); return false;
   }
   try{
     const r = await fetch('/api/data'); const res = await r.json();
     if(res && res.ok){ SYNC.mode='server'; SYNC.online=true; SYNC.rev=res.rev||0; setState(res.data); stampBase(); return true; }
-  }catch(e){ /* 不是服务器环境 */ }
-  SYNC.mode='local'; SYNC.online=false; setState(loadLocal()); stampBase(); return false;
+  }catch(e){ /* 连接失败时禁止落入另一份本机数据 */ }
+  if(location.origin!==LAN_SHARED_URL.slice(0,-1)){ location.replace(LAN_SHARED_URL); return false; }
+  SYNC.mode='offline'; SYNC.online=false; setState(defaultState()); stampBase(); return false;
 }
 async function refreshAuth(){
   if(SYNC.mode!=='server'){ AUTH={initialized:false,admin:false,setupAllowed:false}; return AUTH; }
@@ -285,9 +287,9 @@ function updateSyncUI(){
     el.textContent = SYNC.online ? (SYNC.pending?'↻ 同步中…':'● 已同步 · 团队共享') : '⚠ 离线(重连中)';
     el.title = SYNC.online ? '数据存在共享服务器，全员实时同步' : '与共享服务器断开，请检查网络或服务器是否在运行';
   } else {
-    el.className='sync local';
-    el.textContent='● 本机模式';
-    el.title='当前为单机模式(本地存储)。要团队共享请通过 server.py 提供的网址访问。';
+    el.className='sync warn';
+    el.textContent='⚠ 未连接共享服务器';
+    el.title='请打开 '+LAN_SHARED_URL+'，然后刷新页面。';
   }
 }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -365,10 +367,7 @@ function bootstrapMode(){ return S.persons.length===0; }      // 还没建人员
 function isManager(){ return rolesOf(mePerson()).includes('负责人'); }
 function hasAnyManager(){ return S.persons.some(p=>rolesOf(p).includes('负责人')); }
 function canManage(){
-  if(SYNC.mode==='server') return AUTH.admin;
-  if(bootstrapMode()) return true;                 // 还没建人员
-  if(!hasAnyManager()) return true;                // 还没人任负责人：先允许配置（首次搭建/老数据补职位）
-  return isManager();
+  return SYNC.mode==='server'&&AUTH.admin;
 }
 function canRecordDaily(){ return canManage() || rolesOf(mePerson()).includes('标注'); }
 function canRecordQc(){ return canManage() || rolesOf(mePerson()).includes('质检'); }
@@ -1254,7 +1253,7 @@ function renderSettings(){
       <button class="btn ghost" onclick="loadDemo()">载入示例数据</button>
       <button class="btn danger" onclick="clearAll()">清空所有数据</button>`:''}
     </div>
-    <div class="hint">共享模式数据存在服务器 data/store.json；单机模式存在本浏览器。导入备份 / 清空 / 示例数据仅管理员可用，请谨慎。</div>
+    <div class="hint">全部共享数据保存在服务器 data/store.json。导入备份 / 清空 / 示例数据仅管理员可用，请谨慎。</div>
   </div>`;
   return html;
 }
