@@ -1277,9 +1277,38 @@ function personDirectoryTable(){
   const rows=S.persons.map(p=>{
     const memberships=projectIdsOf(p).map(id=>project(id)).filter(Boolean);
     const labels=memberships.length?memberships.map(pr=>`<span class="badge ok">${esc(pr.name)}</span>`).join(' '):'<span class="badge warn">尚未分配项目</span>';
-    return `<tr><td><b>${esc(p.name)}</b></td><td>${labels}</td><td class="muted">${esc(p.team||'-')}</td></tr>`;
+    return `<tr><td><b>${esc(p.name)}</b></td><td>${labels}</td><td class="muted">${esc(p.team||'-')}</td><td><button class="btn link" onclick="editPersonProjects('${p.id}')">${memberships.length?'调整归属':'选择项目'}</button></td></tr>`;
   }).join('');
-  return `<div class="panel"><h2>全部人员归属 <span class="sub">用于核对人员是否放在正确项目</span></h2><div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>所属项目</th><th>团队</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  return `<div class="panel"><h2>全部人员归属 <span class="sub">选择人员所属项目，并为每个项目分别设置职位</span></h2><div class="tbl-wrap"><table><thead><tr><th>姓名</th><th>所属项目</th><th>团队</th><th>归属设置</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+function editPersonProjects(id){
+  if(!canManage()) return toast('仅管理员可分配人员项目','bad');
+  const p=person(id); if(!p) return;
+  const rows=S.projects.map((pr,i)=>{
+    const joined=personInProject(p,pr.id); const roles=rolesOf(p,pr.id);
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px">
+      <label style="display:flex;align-items:center;gap:7px;font-weight:700"><input type="checkbox" id="ap_m${i}" ${joined?'checked':''}> ${esc(pr.name)}</label>
+      <div style="display:flex;gap:14px;margin:10px 0 0 25px">${ROLES.map((role,j)=>`<label style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="ap_r${i}_${j}" ${roles.includes(role)?'checked':''}> ${role}</label>`).join('')}</div>
+    </div>`;
+  }).join('');
+  showOverlay(`<h3>分配人员项目：${esc(p.name)}</h3><div class="hint">勾选所属项目，并为每个已选项目至少选择一个职位。同一个人可以加入多个项目，职位互不影响。</div>
+    <div id="assign_projects">${rows||'<div class="empty">请先创建项目</div>'}</div>
+    <div class="actions"><button class="btn ghost" onclick="closeOverlay()">取消</button>${S.projects.length?`<button class="btn" onclick="savePersonProjects('${id}')">保存归属</button>`:''}</div>`);
+}
+function savePersonProjects(id){
+  if(!canManage()) return toast('仅管理员可分配人员项目','bad');
+  const p=person(id); if(!p) return;
+  const projectIds=[], projectRoles={}, projectTargets={};
+  for(let i=0;i<S.projects.length;i++){
+    const pr=S.projects[i]; const member=$('#ap_m'+i);
+    if(!member||!member.checked) continue;
+    const roles=ROLES.filter((role,j)=>{ const el=$('#ap_r'+i+'_'+j); return el&&el.checked; });
+    if(!roles.length) return toast('请为项目“'+pr.name+'”至少选择一个职位','bad');
+    projectIds.push(pr.id); projectRoles[pr.id]=roles;
+    projectTargets[pr.id]=(p.projectTargets&&p.projectTargets[pr.id])?p.projectTargets[pr.id]:{d:null,q:null};
+  }
+  p.projectIds=projectIds; p.projectRoles=projectRoles; p.projectTargets=projectTargets;
+  save(); closeOverlay(); renderPage(); toast('人员项目归属已保存','ok');
 }
 function addProject(){
   if(!canManage()) return toast('仅管理员可新增项目','bad');
